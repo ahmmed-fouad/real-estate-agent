@@ -5,6 +5,7 @@
  */
 
 import { createServiceLogger } from '../../utils/logger';
+import { PriceFormatter } from '../../utils/price-formatter';
 import { ExtractedEntities } from './intent-types';
 // FIXED: ExtractedInfo is now just an alias for ExtractedEntities (no duplication)
 import { ExtractedInfo } from '../session/types';
@@ -226,7 +227,7 @@ export class EntityExtractorService {
     const parts: string[] = [];
 
     if (entities.budget) {
-      parts.push(`Budget: ${entities.budget.toLocaleString()} EGP`);
+      parts.push(`Budget: ${PriceFormatter.formatForLog(entities.budget)}`);
     }
     if (entities.location) {
       parts.push(`Location: ${entities.location}`);

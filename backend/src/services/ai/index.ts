@@ -13,4 +13,6 @@ export * from './rag.service';
 export * from './intent-types';
 export * from './intent-classifier.service';
 export * from './entity-extractor.service';
+export * from './response-templates';
+export * from './response-post-processor.service';
 

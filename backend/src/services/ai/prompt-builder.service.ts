@@ -5,6 +5,7 @@
  */
 
 import { createServiceLogger } from '../../utils/logger';
+import { PriceFormatter } from '../../utils/price-formatter';
 import { PromptVariables } from './types';
 import { ConversationSession } from '../session/types';
 
@@ -119,7 +120,7 @@ Safety & Compliance:
     const parts: string[] = [];
 
     if (info.budget) {
-      parts.push(`Budget: ${info.budget.toLocaleString()} EGP`);
+      parts.push(`Budget: ${PriceFormatter.formatForContext(info.budget)}`);
     }
     if (info.location) {
       parts.push(`Preferred Location: ${info.location}`);

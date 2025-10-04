@@ -12,7 +12,7 @@ import { whatsappService } from '../whatsapp/whatsapp.service';
 import { sessionManager } from '../session';
 import { ConversationState } from '../session/types';
 import { MessageQueueJob, MessageQueueResult } from './message-queue.service';
-import { llmService, promptBuilder, ragService, intentClassifier, entityExtractor } from '../ai';
+import { llmService, promptBuilder, ragService, intentClassifier, entityExtractor, responsePostProcessor } from '../ai';
 
 const logger = createServiceLogger('MessageProcessor');
 
@@ -240,17 +240,64 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
           responseTime: llmResponse.responseTime,
         });
 
+        // ✅ Task 2.4 - Post-process response (plan line 650)
+        // Enhance response with property cards, buttons, formatting, etc.
+        logger.info('Post-processing response', {
+          messageId: message.messageId,
+          intent: intentAnalysis.intent,
+          propertiesCount: relevantProperties.length,
+        });
+
+        const enhancedResponse = await responsePostProcessor.postProcess(
+          llmResponse.content,
+          {
+            intent: intentAnalysis.intent,
+            properties: relevantProperties,
+            customerName: undefined, // TODO: Extract from conversation if available
+            agentName: session.agentId,
+            extractedInfo: session.context.extractedInfo,
+          }
+        );
+
+        logger.info('Response post-processing complete', {
+          messageId: message.messageId,
+          hasEnhancedText: enhancedResponse.text !== llmResponse.content,
+          hasProperties: !!enhancedResponse.properties,
+          buttonsCount: enhancedResponse.buttons?.length || 0,
+          hasLocation: !!enhancedResponse.location,
+          requiresEscalation: enhancedResponse.requiresEscalation,
+        });
+
         // Add AI response to session history (in memory)
+        // Store the enhanced text in history
         session.context.messageHistory.push({
           role: 'assistant',
-          content: llmResponse.content,
+          content: enhancedResponse.text,
           timestamp: new Date(),
           type: 'text',
         });
 
+        // Handle escalation if needed
+        if (enhancedResponse.requiresEscalation) {
+          logger.info('Escalation required, updating session state', {
+            sessionId: session.id,
+            currentState: session.state,
+          });
+          
+          // Update session state to WAITING_AGENT
+          session.state = ConversationState.WAITING_AGENT;
+          
+          // TODO: Notify agent via notification system (Phase 4)
+          logger.info('Agent notification would be sent here (to be implemented in Phase 4)', {
+            sessionId: session.id,
+            customerId: session.customerId,
+            agentId: session.agentId,
+          });
+        }
+
         // PERFORMANCE FIX: Single Redis write with all changes
-        // Includes: state transition + user message + AI response
-        // This is 50% more efficient than two separate writes
+        // Includes: state transition + user message + AI response + potential escalation
+        // This is 50% more efficient than multiple separate writes
         await sessionManager.updateSession(session);
 
         logger.info('Session updated with all changes', {
@@ -260,18 +307,55 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
           totalMessages: session.context.messageHistory.length,
         });
 
-        // Task 2.1 - Send response via WhatsApp ✅ IMPLEMENTED
+        // ✅ Task 2.4 - Send enhanced response via WhatsApp
+        // Send main text message
         await whatsappService.sendMessage({
           to: message.from,
           type: 'text',
-          content: llmResponse.content,
+          content: enhancedResponse.text,
         });
 
-        logger.info('AI response sent successfully', {
+        logger.info('Enhanced response sent successfully', {
           messageId: message.messageId,
           to: message.from,
-          responseLength: llmResponse.content.length,
+          responseLength: enhancedResponse.text.length,
         });
+
+        // TODO: Send property cards if present (requires WhatsApp template messages)
+        // This will be implemented when we add media support
+        if (enhancedResponse.properties && enhancedResponse.properties.length > 0) {
+          logger.info('Properties included in response (cards to be sent separately)', {
+            messageId: message.messageId,
+            propertiesCount: enhancedResponse.properties.length,
+          });
+          
+          // For now, properties are included in the text summary
+          // In Phase 3/4, we'll send them as separate cards/template messages
+        }
+
+        // TODO: Send interactive buttons (requires WhatsApp interactive messages API)
+        // This will be implemented when we add button support
+        if (enhancedResponse.buttons && enhancedResponse.buttons.length > 0) {
+          logger.info('Buttons generated (to be sent as interactive message)', {
+            messageId: message.messageId,
+            buttons: enhancedResponse.buttons.map(b => b.title),
+          });
+          
+          // For now, we log the buttons
+          // In Phase 3/4, we'll send them as WhatsApp interactive messages
+        }
+
+        // TODO: Send location pin if present
+        // This will be implemented when we add location support
+        if (enhancedResponse.location) {
+          logger.info('Location pin to be sent', {
+            messageId: message.messageId,
+            location: enhancedResponse.location.name,
+          });
+          
+          // For now, we log the location
+          // In Phase 3/4, we'll send it as a WhatsApp location message
+        }
 
         // Mark that we generated and sent a response
         return {

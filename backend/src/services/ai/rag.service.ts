@@ -14,6 +14,7 @@ import { supabase } from '../../config/supabase.config';
 import { embeddingService } from './embedding.service';
 import { textChunker } from './text-chunker.service';
 import { createServiceLogger } from '../../utils/logger';
+import { PriceFormatter } from '../../utils/price-formatter';
 import {
   IRAGService,
   PropertyDocument,
@@ -239,12 +240,22 @@ export class RAGService implements IRAGService {
           })
           .join(', ');
 
+        // Format prices using centralized utility for consistency
+        const formattedBasePrice = PriceFormatter.formatForContext(
+          prop.pricing.basePrice,
+          prop.pricing.currency
+        );
+        const formattedPricePerMeter = PriceFormatter.formatPricePerMeter(
+          prop.pricing.pricePerMeter,
+          prop.pricing.currency
+        );
+
         return `
 Property ${index + 1}: ${prop.projectName}
 - Developer: ${prop.developerName || 'N/A'}
 - Type: ${prop.propertyType}
 - Location: ${prop.location.district}, ${prop.location.city}
-- Price: ${prop.pricing.basePrice.toLocaleString()} ${prop.pricing.currency} (${prop.pricing.pricePerMeter} ${prop.pricing.currency}/sqm)
+- Price: ${formattedBasePrice} (${formattedPricePerMeter})
 - Specifications: ${prop.specifications.area} sqm, ${prop.specifications.bedrooms} bedrooms, ${prop.specifications.bathrooms} bathrooms
 - Amenities: ${prop.amenities.join(', ') || 'N/A'}
 - Payment Plans: ${paymentPlansText || 'Cash only'}
