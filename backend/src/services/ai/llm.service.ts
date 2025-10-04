@@ -12,6 +12,7 @@
 
 import OpenAI from 'openai';
 import { openaiConfig } from '../../config/openai.config';
+import { getOpenAIClient } from '../../config/openai-client';
 import { createServiceLogger } from '../../utils/logger';
 import {
   ILLMService,
@@ -26,6 +27,7 @@ const logger = createServiceLogger('LLMService');
 /**
  * LLM Service Implementation
  * Integrates with OpenAI GPT-4 as per plan (line 75)
+ * Uses shared OpenAI client to eliminate duplication
  */
 export class LLMService implements ILLMService {
   private client: OpenAI;
@@ -34,13 +36,8 @@ export class LLMService implements ILLMService {
   private temperature: number;
 
   constructor() {
-    // Initialize OpenAI client
-    this.client = new OpenAI({
-      apiKey: openaiConfig.apiKey,
-      organization: openaiConfig.organization,
-      maxRetries: 3, // Implement retry logic as per plan (line 369)
-      timeout: 60000, // 60 seconds timeout
-    });
+    // Use shared OpenAI client (eliminates duplication)
+    this.client = getOpenAIClient();
 
     this.model = openaiConfig.model;
     this.maxTokens = openaiConfig.maxTokens;
@@ -50,8 +47,7 @@ export class LLMService implements ILLMService {
       model: this.model,
       maxTokens: this.maxTokens,
       temperature: this.temperature,
-      retryEnabled: true,
-      maxRetries: 3,
+      usingSharedClient: true,
     });
   }
 

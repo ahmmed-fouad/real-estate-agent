@@ -12,7 +12,7 @@ import { whatsappService } from '../whatsapp/whatsapp.service';
 import { sessionManager } from '../session';
 import { ConversationState } from '../session/types';
 import { MessageQueueJob, MessageQueueResult } from './message-queue.service';
-import { llmService, promptBuilder } from '../ai';
+import { llmService, promptBuilder, ragService } from '../ai';
 
 const logger = createServiceLogger('MessageProcessor');
 
@@ -123,27 +123,64 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
 
       try {
         // TODO: Task 2.3 - Classify intent and extract entities (Phase 2)
-        // TODO: Task 2.2 - Retrieve relevant documents (RAG) (Phase 2)
+
+        // Task 2.2 - Retrieve relevant documents (RAG) ✅ IMPLEMENTED
+        logger.info('Retrieving relevant properties', {
+          messageId: message.messageId,
+          sessionId: session.id,
+          agentId: session.agentId,
+          query: message.content.substring(0, 100),
+        });
+
+        // Retrieve relevant property documents using RAG
+        // As per plan lines 524-535: RAG Flow
+        const relevantProperties = await ragService.retrieveRelevantDocs(
+          message.content,
+          session.agentId,
+          {
+            topK: 5, // Return top 5 most relevant properties
+            // TODO: Task 2.3 will add extracted entity filters here
+            // filters: { bedrooms: 3, minPrice: 1000000, maxPrice: 3000000 }
+          }
+        );
+
+        logger.info('Relevant properties retrieved', {
+          messageId: message.messageId,
+          count: relevantProperties.length,
+        });
+
+        // Augment prompt with retrieved properties
+        // As per plan lines 506-512 and 532: "Format properties into context string"
+        const ragContext = await ragService.augmentPrompt(
+          message.content,
+          relevantProperties
+        );
+
+        logger.debug('RAG context generated', {
+          messageId: message.messageId,
+          contextLength: ragContext.length,
+        });
 
         // Task 2.1 - Generate AI response ✅ IMPLEMENTED
-        logger.info('Generating AI response', {
+        logger.info('Generating AI response with RAG context', {
           messageId: message.messageId,
           sessionId: session.id,
           messageCount: session.context.messageHistory.length,
+          hasRagContext: relevantProperties.length > 0,
         });
 
-        // Build system prompt from session context
+        // Build system prompt from session context with RAG context
         const systemPrompt = promptBuilder.buildSystemPromptFromSession(
           session,
-          undefined // TODO: Task 2.2 will add RAG context here
+          ragContext // Task 2.2: Add RAG context here ✅
         );
 
-        // Generate response using LLM
+        // Generate response using LLM with RAG context
         // Uses configured maxTokens from openaiConfig (default: 500)
         const llmResponse = await llmService.generateResponse(
           systemPrompt,
           message.content,
-          undefined, // TODO: Task 2.2 will add RAG documents here
+          undefined, // Context is already in system prompt via ragContext
           {
             // maxTokens and temperature will use defaults from llmService
             // which are configured via environment variables
