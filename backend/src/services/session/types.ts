@@ -40,19 +40,13 @@ export interface Message {
 }
 
 // Extracted information from conversation
-export interface ExtractedInfo {
-  budget?: number;
-  location?: string;
-  propertyType?: string;
-  bedrooms?: number;
-  urgency?: string;
-  // Additional fields for Egyptian real estate context
-  area?: number;         // Square meters
-  bathrooms?: number;
-  floors?: number;
-  paymentMethod?: string;
-  deliveryDate?: string;
-}
+// FIXED: Now uses ExtractedEntities from intent-types to eliminate duplication
+// This ensures consistency between intent classification and session storage
+import { ExtractedEntities, Intent } from '../ai/intent-types';
+
+// ExtractedInfo is now just an alias for ExtractedEntities
+// This eliminates duplication while maintaining backwards compatibility
+export type ExtractedInfo = ExtractedEntities;
 
 // Conversation Session - Exact structure from plan (lines 315-331)
 // FIXED: Added missing fields from plan line 300-301:
@@ -68,7 +62,7 @@ export interface ConversationSession {
     messageHistory: Message[];
     extractedInfo: ExtractedInfo;
     lastActivity: Date;
-    currentIntent?: string; // Current intent/topic (plan line 301)
+    currentIntent?: Intent; // FIXED: Use Intent enum for type safety (plan line 301)
     currentTopic?: string;  // Additional context for what customer is discussing
   };
 }
@@ -83,9 +77,9 @@ export interface ISessionManager {
   
   // Additional public methods for session management
   addMessageToHistory(session: ConversationSession, message: Message): Promise<void>;
-  updateExtractedInfo(session: ConversationSession, info: Partial<ExtractedInfo>): Promise<void>;
+  // REMOVED: updateExtractedInfo() - Never used, entity merging handled by EntityExtractorService
   updateState(session: ConversationSession, newState: ConversationState): Promise<void>;
-  updateCurrentIntent(session: ConversationSession, intent: string, topic?: string): Promise<void>;
+  updateCurrentIntent(session: ConversationSession, intent: Intent, topic?: string): Promise<void>;
   checkIdleSessions(): Promise<void>;
   getConversationDuration(session: ConversationSession): number;
   close(): Promise<void>;

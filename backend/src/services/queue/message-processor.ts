@@ -12,7 +12,7 @@ import { whatsappService } from '../whatsapp/whatsapp.service';
 import { sessionManager } from '../session';
 import { ConversationState } from '../session/types';
 import { MessageQueueJob, MessageQueueResult } from './message-queue.service';
-import { llmService, promptBuilder, ragService } from '../ai';
+import { llmService, promptBuilder, ragService, intentClassifier, entityExtractor } from '../ai';
 
 const logger = createServiceLogger('MessageProcessor');
 
@@ -122,25 +122,71 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
       });
 
       try {
-        // TODO: Task 2.3 - Classify intent and extract entities (Phase 2)
+        // ✅ Task 2.3 - Classify intent and extract entities (Phase 2) IMPLEMENTED
+        logger.info('Classifying intent and extracting entities', {
+          messageId: message.messageId,
+          sessionId: session.id,
+          messagePreview: message.content.substring(0, 100),
+        });
+
+        // Get conversation context for classification
+        const conversationContext = intentClassifier.formatConversationContext(
+          session.context.messageHistory.slice(-5) // Last 5 messages for context
+        );
+
+        // Classify intent and extract entities using LLM
+        // As per plan lines 571-588: Use LLM for zero-shot classification
+        const intentAnalysis = await intentClassifier.analyze(
+          message.content,
+          conversationContext
+        );
+
+        logger.info('Intent classified and entities extracted', {
+          messageId: message.messageId,
+          intent: intentAnalysis.intent,
+          confidence: intentAnalysis.confidence,
+          entityCount: Object.keys(intentAnalysis.entities).length,
+          entitySummary: entityExtractor.getEntitySummary(intentAnalysis.entities),
+        });
+
+        // ✅ Task 2.3 - Update session with extracted entities (plan lines 596-599)
+        // Merge new entities with existing session data (accumulate across conversation)
+        session.context.extractedInfo = entityExtractor.mergeEntities(
+          session.context.extractedInfo,
+          intentAnalysis.entities
+        );
+
+        // Update current intent in session context
+        session.context.currentIntent = intentAnalysis.intent;
+        session.context.currentTopic = intentAnalysis.explanation;
+
+        logger.debug('Session context updated with entities and intent', {
+          sessionId: session.id,
+          currentIntent: session.context.currentIntent,
+          extractedInfo: session.context.extractedInfo,
+        });
+
+        // ✅ Task 2.3 - Extract search filters from entities for RAG (plan line 599)
+        // Use extracted entities for filtering property search
+        const searchFilters = entityExtractor.extractSearchFilters(session.context.extractedInfo);
 
         // Task 2.2 - Retrieve relevant documents (RAG) ✅ IMPLEMENTED
-        logger.info('Retrieving relevant properties', {
+        logger.info('Retrieving relevant properties with entity-based filters', {
           messageId: message.messageId,
           sessionId: session.id,
           agentId: session.agentId,
           query: message.content.substring(0, 100),
+          filters: searchFilters,
         });
 
-        // Retrieve relevant property documents using RAG
-        // As per plan lines 524-535: RAG Flow
+        // Retrieve relevant property documents using RAG with entity-based filters
+        // As per plan lines 524-535: RAG Flow with extracted entity filters
         const relevantProperties = await ragService.retrieveRelevantDocs(
           message.content,
           session.agentId,
           {
             topK: 5, // Return top 5 most relevant properties
-            // TODO: Task 2.3 will add extracted entity filters here
-            // filters: { bedrooms: 3, minPrice: 1000000, maxPrice: 3000000 }
+            ...searchFilters, // ✅ Task 2.3: Add extracted entity filters here
           }
         );
 

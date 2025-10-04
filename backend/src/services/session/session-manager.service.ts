@@ -15,6 +15,7 @@ import {
   Message,
   ExtractedInfo,
 } from './types';
+import { Intent } from '../ai/intent-types';
 
 const logger = createServiceLogger('SessionManager');
 
@@ -246,26 +247,12 @@ export class SessionManager implements ISessionManager {
     await this.updateSession(session);
   }
 
-  /**
-   * Update extracted information in session
-   * As per plan lines 322-328
-   */
-  async updateExtractedInfo(
-    session: ConversationSession,
-    info: Partial<ExtractedInfo>
-  ): Promise<void> {
-    session.context.extractedInfo = {
-      ...session.context.extractedInfo,
-      ...info,
-    };
-
-    await this.updateSession(session);
-
-    logger.info('Extracted info updated', {
-      sessionId: session.id,
-      updatedFields: Object.keys(info),
-    });
-  }
+  // REMOVED: updateExtractedInfo() method
+  // This method was never used in the codebase. Entity merging is handled by
+  // EntityExtractorService.mergeEntities() which provides more sophisticated
+  // merging logic (e.g., handling minPrice/maxPrice, city/district, etc.)
+  // Keeping entity extraction logic in one place (EntityExtractorService) follows
+  // Single Responsibility Principle and avoids duplication.
 
   /**
    * Update session state
@@ -306,11 +293,11 @@ export class SessionManager implements ISessionManager {
   /**
    * Update current intent/topic
    * As per plan line 301: "Current intent/topic"
-   * This will be used by AI engine in Phase 2
+   * FIXED: Now uses Intent enum for type safety
    */
   async updateCurrentIntent(
     session: ConversationSession,
-    intent: string,
+    intent: Intent,
     topic?: string
   ): Promise<void> {
     session.context.currentIntent = intent;

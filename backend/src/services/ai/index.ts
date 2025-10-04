@@ -10,4 +10,7 @@ export * from './embedding.service';
 export * from './text-chunker.service';
 export * from './rag-types';
 export * from './rag.service';
+export * from './intent-types';
+export * from './intent-classifier.service';
+export * from './entity-extractor.service';
 
