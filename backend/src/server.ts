@@ -13,6 +13,9 @@ import { apiRateLimiter } from './api/middleware/rate-limit.middleware';
 import { logger } from './utils/logger';
 import { messageQueue } from './services/queue';
 import { processMessage } from './services/queue/message-processor';
+import { sessionManager, idleCheckService } from './services/session';
+import { whatsappRateLimiter } from './services/rate-limiter';
+import { redisManager } from './config/redis-manager';
 
 // Load environment variables
 config();
@@ -120,6 +123,11 @@ const startServer = async () => {
     messageQueue.startProcessing(processMessage);
     logger.info('Message queue processing started');
 
+    // Start idle session checker (as per plan line 309: "IDLE - No activity for X minutes")
+    logger.info('Starting idle session checker...');
+    await idleCheckService.start();
+    logger.info('Idle session checker started');
+
     // Start listening
     app.listen(PORT, () => {
       logger.info('Server started successfully', {
@@ -127,6 +135,7 @@ const startServer = async () => {
         environment: NODE_ENV,
         nodeVersion: process.version,
         queueEnabled: true,
+        idleCheckEnabled: true,
       });
 
       logger.info('Available endpoints', {
@@ -172,16 +181,24 @@ process.on('uncaughtException', (error: Error) => {
   process.exit(1);
 });
 
-// Graceful shutdown
+// Graceful shutdown (FIXED: Issue #1 - Close all Redis connections)
 process.on('SIGTERM', async () => {
-  logger.info('SIGTERM signal received: closing HTTP server and queue');
+  logger.info('SIGTERM signal received: closing HTTP server, queue, idle checker, rate limiter, sessions, and Redis');
   await messageQueue.stopProcessing();
+  await idleCheckService.stop();
+  await whatsappRateLimiter.close();
+  await sessionManager.close();
+  await redisManager.closeAll(); // Close all Redis connections
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
-  logger.info('SIGINT signal received: closing HTTP server and queue');
+  logger.info('SIGINT signal received: closing HTTP server, queue, idle checker, rate limiter, sessions, and Redis');
   await messageQueue.stopProcessing();
+  await idleCheckService.stop();
+  await whatsappRateLimiter.close();
+  await sessionManager.close();
+  await redisManager.closeAll(); // Close all Redis connections
   process.exit(0);
 });
 

@@ -10,35 +10,11 @@
  */
 
 import Queue, { Job, JobOptions } from 'bull';
-import Redis from 'ioredis';
 import { createServiceLogger } from '../../utils/logger';
+import { redisManager } from '../../config/redis-manager';
 import { ParsedMessage } from '../whatsapp/types';
 
 const logger = createServiceLogger('MessageQueue');
-
-// Redis configuration
-const redisConfig = {
-  host: process.env.REDIS_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_PORT || '6379', 10),
-  password: process.env.REDIS_PASSWORD || undefined,
-  maxRetriesPerRequest: null, // Required for Bull
-  enableReadyCheck: false,
-};
-
-// Create Redis clients for Bull
-const createRedisClient = () => {
-  const client = new Redis(redisConfig);
-  
-  client.on('error', (error) => {
-    logger.error('Redis connection error', { error: error.message });
-  });
-
-  client.on('connect', () => {
-    logger.info('Redis connected successfully');
-  });
-
-  return client;
-};
 
 // Job data interface
 export interface MessageQueueJob {
@@ -60,12 +36,13 @@ export interface MessageQueueResult {
  */
 export class MessageQueueService {
   private queue: Queue<MessageQueueJob>;
+  private deadLetterQueue: Queue<MessageQueueJob>;
   private isProcessing = false;
 
   constructor() {
-    // Initialize Bull queue with Redis
+    // Initialize Bull queue with shared Redis config (FIXED: Issue #2)
     this.queue = new Queue<MessageQueueJob>('whatsapp-messages', {
-      redis: redisConfig,
+      redis: redisManager.getBullRedisConfig(),
       defaultJobOptions: {
         attempts: 3, // Retry up to 3 times
         backoff: {
@@ -74,6 +51,15 @@ export class MessageQueueService {
         },
         removeOnComplete: 100, // Keep last 100 completed jobs
         removeOnFail: 500, // Keep last 500 failed jobs for debugging
+      },
+    });
+
+    // Initialize Dead Letter Queue for permanently failed messages (FIXED: Issue #3)
+    this.deadLetterQueue = new Queue<MessageQueueJob>('whatsapp-messages-dlq', {
+      redis: redisManager.getBullRedisConfig(),
+      defaultJobOptions: {
+        removeOnComplete: 1000, // Keep more DLQ entries
+        removeOnFail: false, // Never auto-remove failures from DLQ
       },
     });
 
@@ -177,9 +163,14 @@ export class MessageQueueService {
    */
   async stopProcessing(): Promise<void> {
     logger.info('Stopping queue processing...');
-    await this.queue.close();
+    
+    await Promise.all([
+      this.queue.close(),
+      this.deadLetterQueue.close(),
+    ]);
+    
     this.isProcessing = false;
-    logger.info('Queue processing stopped');
+    logger.info('Queue and DLQ processing stopped');
   }
 
   /**
@@ -232,6 +223,60 @@ export class MessageQueueService {
   }
 
   /**
+   * Get Dead Letter Queue statistics (FIXED: Issue #3)
+   * Useful for monitoring permanently failed messages
+   */
+  async getDLQStats(): Promise<{
+    waiting: number;
+    active: number;
+    failed: number;
+    completed: number;
+  }> {
+    const [waiting, active, failed, completed] = await Promise.all([
+      this.deadLetterQueue.getWaitingCount(),
+      this.deadLetterQueue.getActiveCount(),
+      this.deadLetterQueue.getFailedCount(),
+      this.deadLetterQueue.getCompletedCount(),
+    ]);
+
+    return { waiting, active, failed, completed };
+  }
+
+  /**
+   * Retry messages from Dead Letter Queue (FIXED: Issue #3)
+   * Admin tool to manually retry failed messages
+   */
+  async retryFromDLQ(jobId: string): Promise<boolean> {
+    try {
+      const job = await this.deadLetterQueue.getJob(jobId);
+      
+      if (!job) {
+        logger.warn('Job not found in DLQ', { jobId });
+        return false;
+      }
+
+      // Add back to main queue for retry
+      await this.addMessage(job.data.message);
+      
+      // Remove from DLQ
+      await job.remove();
+
+      logger.info('Message retried from DLQ', {
+        jobId,
+        messageId: job.data.message.messageId,
+      });
+
+      return true;
+    } catch (error) {
+      logger.error('Failed to retry from DLQ', {
+        jobId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      return false;
+    }
+  }
+
+  /**
    * Set up event listeners for monitoring
    */
   private setupEventListeners(): void {
@@ -244,23 +289,57 @@ export class MessageQueueService {
       });
     });
 
-    // Job failed
-    this.queue.on('failed', (job, error) => {
+    // Job failed (FIXED: Issue #3 - Enhanced error recovery)
+    this.queue.on('failed', async (job, error) => {
+      const isFinalFailure = job.attemptsMade >= (job.opts.attempts || 3);
+
       logger.error('Job failed', {
         jobId: job.id,
         messageId: job.data.message.messageId,
         attempt: job.attemptsMade,
         maxAttempts: job.opts.attempts,
+        isFinalFailure,
         error: error.message,
+        stack: error.stack,
       });
+
+      // Move to Dead Letter Queue after all retries exhausted
+      if (isFinalFailure) {
+        try {
+          await this.deadLetterQueue.add(job.data, {
+            priority: 1, // Lower priority for DLQ processing
+          });
+
+          logger.error('Message moved to Dead Letter Queue', {
+            jobId: job.id,
+            messageId: job.data.message.messageId,
+            from: job.data.message.from,
+            originalError: error.message,
+          });
+
+          // TODO: Add alerting/notification system here
+          // - Send to monitoring system (Sentry, DataDog)
+          // - Notify on-call engineer
+          // - Store in database for admin review
+        } catch (dlqError) {
+          logger.error('Failed to add message to Dead Letter Queue', {
+            jobId: job.id,
+            messageId: job.data.message.messageId,
+            error: dlqError instanceof Error ? dlqError.message : 'Unknown error',
+          });
+        }
+      }
     });
 
-    // Job stalled (took too long)
+    // Job stalled (took too long) (FIXED: Issue #3 - Better monitoring)
     this.queue.on('stalled', (job) => {
-      logger.warn('Job stalled', {
+      logger.warn('Job stalled (worker crashed?)', {
         jobId: job.id,
         messageId: job.data.message.messageId,
+        attempt: job.attemptsMade,
       });
+      // Stalled jobs are automatically retried by Bull
+      // TODO: If stall rate is high, trigger circuit breaker
     });
 
     // Queue error

@@ -7,6 +7,7 @@ import axios, { AxiosInstance, AxiosError } from 'axios';
 import axiosRetry from 'axios-retry';
 import { whatsappConfig } from '../../config/whatsapp.config';
 import { createServiceLogger } from '../../utils/logger';
+import { whatsappRateLimiter } from '../rate-limiter';
 import {
   WhatsAppMessage,
   SendMessageResponse,
@@ -21,7 +22,6 @@ const logger = createServiceLogger('WhatsAppService');
 export class WhatsAppService {
   private client: AxiosInstance;
   private phoneNumberId: string;
-  private rateLimitDelay = 1000; // 1 second delay between messages to avoid rate limiting
 
   constructor() {
     this.phoneNumberId = whatsappConfig.phoneNumberId;
@@ -89,7 +89,8 @@ export class WhatsAppService {
 
   /**
    * Send a message to WhatsApp
-   * Implements rate limiting and error handling
+   * Implements Redis-based distributed rate limiting and error handling
+   * As per plan line 240: "Handle rate limiting"
    */
   async sendMessage(message: WhatsAppMessage): Promise<SendMessageResponse> {
     try {
@@ -98,8 +99,24 @@ export class WhatsAppService {
         type: message.type,
       });
 
-      // Rate limiting check
-      await this.checkRateLimit();
+      // Check rate limit before sending
+      const rateLimitCheck = await whatsappRateLimiter.checkLimit();
+
+      if (!rateLimitCheck.allowed) {
+        const error = new Error('Rate limit exceeded');
+        logger.error('Cannot send message - rate limit exceeded', {
+          to: message.to,
+          remaining: rateLimitCheck.remaining,
+          resetIn: rateLimitCheck.resetIn,
+          limit: rateLimitCheck.limit,
+        });
+        throw error;
+      }
+
+      logger.debug('Rate limit check passed', {
+        remaining: rateLimitCheck.remaining,
+        limit: rateLimitCheck.limit,
+      });
 
       // Send message via 360dialog API
       const response = await this.client.post<SendMessageResponse>('/messages', {
@@ -109,6 +126,9 @@ export class WhatsAppService {
         type: message.type,
         ...this.formatMessageContent(message),
       });
+
+      // Increment rate limit counter after successful send
+      await whatsappRateLimiter.increment();
 
       logger.info('Message sent successfully', {
         to: message.to,
@@ -456,13 +476,14 @@ export class WhatsAppService {
   }
 
   /**
-   * Basic rate limiting check
-   * In production, use Redis-based rate limiting
+   * Get current rate limit statistics
    */
-  private async checkRateLimit(): Promise<void> {
-    // Simple delay for now
-    // TODO: Implement proper Redis-based rate limiting in Task 1.3
-    await new Promise((resolve) => setTimeout(resolve, this.rateLimitDelay));
+  async getRateLimitStats(): Promise<{
+    perSecond: number;
+    perMinute: number;
+    perHour: number;
+  }> {
+    return whatsappRateLimiter.getStats();
   }
 
   /**
