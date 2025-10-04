@@ -12,6 +12,7 @@ import { whatsappService } from '../whatsapp/whatsapp.service';
 import { sessionManager } from '../session';
 import { ConversationState } from '../session/types';
 import { MessageQueueJob, MessageQueueResult } from './message-queue.service';
+import { llmService, promptBuilder } from '../ai';
 
 const logger = createServiceLogger('MessageProcessor');
 
@@ -92,10 +93,10 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
       }
     }
 
-    // ✅ Task 1.3 - Add message to history in memory (don't persist yet)
-    // PERFORMANCE FIX: Add to array directly to batch with state update
-    // This eliminates double Redis writes (was: state update + history update = 2 writes)
-    // Now: single write with both changes
+    // ✅ Task 1.3 - Add user message to history in memory (don't persist yet)
+    // PERFORMANCE OPTIMIZATION: Defer Redis write until after AI response
+    // This batches state update + user message + AI response into ONE Redis write
+    // instead of TWO separate writes (before and after AI generation)
     session.context.messageHistory.push({
       role: 'user',
       content: message.content, // Can be string | MediaContent | LocationContent
@@ -104,11 +105,7 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
       type: message.type,
     });
 
-    // Persist all changes at once (state + message history + lastActivity)
-    // This is 50% more efficient than separate calls
-    await sessionManager.updateSession(session);
-
-    logger.info('Session updated with message and state changes', {
+    logger.debug('User message added to session (in memory, not persisted yet)', {
       sessionId: session.id,
       messageType: message.type,
       totalMessages: session.context.messageHistory.length,
@@ -124,16 +121,124 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
         preview: message.content.substring(0, 100),
       });
 
-      // TODO: Task 2.3 - Classify intent and extract entities
-      // TODO: Task 2.2 - Retrieve relevant documents (RAG)
-      // TODO: Task 2.1 - Generate AI response
-      // TODO: Task 2.4 - Send response via WhatsApp
+      try {
+        // TODO: Task 2.3 - Classify intent and extract entities (Phase 2)
+        // TODO: Task 2.2 - Retrieve relevant documents (RAG) (Phase 2)
 
-      logger.info('Text message ready for AI processing (Phase 2)', {
-        messageId: message.messageId,
-        from: message.from,
-        sessionId: session.id,
-      });
+        // Task 2.1 - Generate AI response ✅ IMPLEMENTED
+        logger.info('Generating AI response', {
+          messageId: message.messageId,
+          sessionId: session.id,
+          messageCount: session.context.messageHistory.length,
+        });
+
+        // Build system prompt from session context
+        const systemPrompt = promptBuilder.buildSystemPromptFromSession(
+          session,
+          undefined // TODO: Task 2.2 will add RAG context here
+        );
+
+        // Generate response using LLM
+        // Uses configured maxTokens from openaiConfig (default: 500)
+        const llmResponse = await llmService.generateResponse(
+          systemPrompt,
+          message.content,
+          undefined, // TODO: Task 2.2 will add RAG documents here
+          {
+            // maxTokens and temperature will use defaults from llmService
+            // which are configured via environment variables
+          }
+        );
+
+        logger.info('AI response generated', {
+          messageId: message.messageId,
+          responseLength: llmResponse.content.length,
+          tokenUsage: llmResponse.tokenUsage,
+          responseTime: llmResponse.responseTime,
+        });
+
+        // Add AI response to session history (in memory)
+        session.context.messageHistory.push({
+          role: 'assistant',
+          content: llmResponse.content,
+          timestamp: new Date(),
+          type: 'text',
+        });
+
+        // PERFORMANCE FIX: Single Redis write with all changes
+        // Includes: state transition + user message + AI response
+        // This is 50% more efficient than two separate writes
+        await sessionManager.updateSession(session);
+
+        logger.info('Session updated with all changes', {
+          sessionId: session.id,
+          stateTransition: oldState !== session.state ? `${oldState} → ${session.state}` : 'none',
+          messagesAdded: 2, // User message + AI response
+          totalMessages: session.context.messageHistory.length,
+        });
+
+        // Task 2.1 - Send response via WhatsApp ✅ IMPLEMENTED
+        await whatsappService.sendMessage({
+          to: message.from,
+          type: 'text',
+          content: llmResponse.content,
+        });
+
+        logger.info('AI response sent successfully', {
+          messageId: message.messageId,
+          to: message.from,
+          responseLength: llmResponse.content.length,
+        });
+
+        // Mark that we generated and sent a response
+        return {
+          processed: true,
+          responseGenerated: true,
+        };
+      } catch (aiError) {
+        logger.error('Error generating or sending AI response', {
+          messageId: message.messageId,
+          error: aiError instanceof Error ? aiError.message : 'Unknown error',
+          stack: aiError instanceof Error ? aiError.stack : undefined,
+        });
+
+        // CRITICAL: Persist session even on AI failure
+        // User message is in memory and needs to be saved
+        try {
+          await sessionManager.updateSession(session);
+          logger.info('Session updated after AI error', {
+            sessionId: session.id,
+            stateTransition: oldState !== session.state ? `${oldState} → ${session.state}` : 'none',
+            userMessageSaved: true,
+          });
+        } catch (sessionError) {
+          logger.error('Failed to save session after AI error', {
+            sessionId: session.id,
+            error: sessionError instanceof Error ? sessionError.message : 'Unknown error',
+          });
+        }
+
+        // Send fallback message to customer
+        try {
+          await whatsappService.sendMessage({
+            to: message.from,
+            type: 'text',
+            content: 'عذراً، حدث خطأ مؤقت. سيتواصل معك أحد ممثلينا قريباً.\n\nSorry, a temporary error occurred. One of our representatives will contact you soon.',
+          });
+          logger.info('Fallback message sent', { messageId: message.messageId });
+        } catch (fallbackError) {
+          logger.error('Failed to send fallback message', {
+            messageId: message.messageId,
+            error: fallbackError instanceof Error ? fallbackError.message : 'Unknown error',
+          });
+        }
+
+        // Don't throw - we handled it gracefully with fallback
+        return {
+          processed: true,
+          responseGenerated: false,
+        };
+      }
     }
 
     // Handle media messages (images, videos, documents, audio)
@@ -171,15 +276,20 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
       // TODO: In Phase 2, handle button click actions
     }
 
-    // Session is automatically persisted with updates
+    // For non-text messages, persist session now
+    // (Text messages are persisted inside the AI processing block)
+    await sessionManager.updateSession(session);
+
     logger.info('Message processing completed', {
       messageId: message.messageId,
       sessionUpdated: true,
+      messageType: message.type,
+      stateTransition: oldState !== session.state ? `${oldState} → ${session.state}` : 'none',
     });
 
     return {
       processed: true,
-      responseGenerated: false, // Will be true in Phase 2
+      responseGenerated: false, // True for text messages with AI, false for media/location/etc.
     };
   } catch (error) {
     logger.error('Error processing message', {
