@@ -1,0 +1,213 @@
+// Prisma schema for Supabase PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+// Agents Table
+model Agent {
+  id              String   @id @default(uuid())
+  email           String   @unique
+  passwordHash    String   @map("password_hash")
+  fullName        String   @map("full_name")
+  phoneNumber     String?  @map("phone_number")
+  companyName     String?  @map("company_name")
+  whatsappNumber  String   @map("whatsapp_number")
+  status          String   @default("active")
+  settings        Json     @default("{}")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  properties      Property[]
+  conversations   Conversation[]
+  scheduledViewings ScheduledViewing[]
+  analyticsEvents AnalyticsEvent[]
+
+  @@map("agents")
+}
+
+// Properties Table
+model Property {
+  id              String   @id @default(uuid())
+  agentId         String   @map("agent_id")
+  projectName     String   @map("project_name")
+  developerName   String?  @map("developer_name")
+  propertyType    String   @map("property_type")
+  
+  // Location
+  city            String
+  district        String
+  address         String?
+  latitude        Decimal? @db.Decimal(10, 8)
+  longitude       Decimal? @db.Decimal(11, 8)
+  
+  // Specifications
+  area            Decimal  @db.Decimal(10, 2)
+  bedrooms        Int
+  bathrooms       Int
+  floors          Int?
+  
+  // Pricing
+  basePrice       Decimal  @map("base_price") @db.Decimal(15, 2)
+  pricePerMeter   Decimal  @map("price_per_meter") @db.Decimal(10, 2)
+  currency        String   @default("EGP")
+  
+  // Other details
+  amenities       String[]
+  description     String?  @db.Text
+  deliveryDate    DateTime? @map("delivery_date")
+  
+  // Media
+  images          String[]
+  documents       String[]
+  videoUrl        String?  @map("video_url")
+  
+  // Status
+  status          String   @default("available")
+  
+  // Metadata
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  
+  // Full-text search (handled by PostgreSQL)
+  searchVector    Unsupported("tsvector")? @map("search_vector")
+  
+  // Embedding for vector search
+  embeddingText   String?  @map("embedding_text") @db.Text
+  embedding       Unsupported("vector(1536)")? // OpenAI embedding dimension
+
+  agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  paymentPlans    PaymentPlan[]
+  scheduledViewings ScheduledViewing[]
+
+  @@index([agentId])
+  @@map("properties")
+}
+
+// Payment Plans Table
+model PaymentPlan {
+  id                      String   @id @default(uuid())
+  propertyId              String   @map("property_id")
+  planName                String   @map("plan_name")
+  downPaymentPercentage   Decimal  @map("down_payment_percentage") @db.Decimal(5, 2)
+  installmentYears        Int      @map("installment_years")
+  monthlyPayment          Decimal  @map("monthly_payment") @db.Decimal(15, 2)
+  description             String?  @db.Text
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  property                Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("payment_plans")
+}
+
+// Conversations Table
+model Conversation {
+  id              String   @id @default(uuid())
+  agentId         String   @map("agent_id")
+  customerPhone   String   @map("customer_phone")
+  customerName    String?  @map("customer_name")
+  
+  // State
+  status          String   @default("active")
+  
+  // Lead information
+  leadScore       Int      @default(0) @map("lead_score")
+  leadQuality     String?  @map("lead_quality")
+  
+  // Timestamps
+  startedAt       DateTime @default(now()) @map("started_at")
+  lastActivityAt  DateTime @default(now()) @map("last_activity_at")
+  closedAt        DateTime? @map("closed_at")
+  
+  // Metadata (extracted info, tags, etc.)
+  metadata        Json     @default("{}")
+  
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  messages        Message[]
+  scheduledViewings ScheduledViewing[]
+  analyticsEvents AnalyticsEvent[]
+
+  @@index([agentId])
+  @@index([customerPhone])
+  @@map("conversations")
+}
+
+// Messages Table
+model Message {
+  id                  String   @id @default(uuid())
+  conversationId      String   @map("conversation_id")
+  
+  // Message details
+  role                String
+  content             String   @db.Text
+  messageType         String   @default("text") @map("message_type")
+  
+  // WhatsApp specific
+  whatsappMessageId   String?  @map("whatsapp_message_id")
+  mediaUrl            String?  @map("media_url")
+  
+  // Metadata
+  intent              String?
+  entities            Json?
+  
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  conversation        Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+// Analytics Events Table
+model AnalyticsEvent {
+  id              String   @id @default(uuid())
+  agentId         String?  @map("agent_id")
+  conversationId  String?  @map("conversation_id")
+  
+  eventType       String   @map("event_type")
+  eventData       Json?    @map("event_data")
+  
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  agent           Agent?   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  conversation    Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, createdAt])
+  @@map("analytics_events")
+}
+
+// Scheduled Viewings Table
+model ScheduledViewing {
+  id              String   @id @default(uuid())
+  conversationId  String   @map("conversation_id")
+  propertyId      String   @map("property_id")
+  agentId         String   @map("agent_id")
+  
+  customerPhone   String   @map("customer_phone")
+  customerName    String?  @map("customer_name")
+  scheduledTime   DateTime @map("scheduled_time")
+  status          String   @default("scheduled")
+  
+  notes           String?  @db.Text
+  reminderSent    Boolean  @default(false) @map("reminder_sent")
+  
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  property        Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@map("scheduled_viewings")
+}
+
