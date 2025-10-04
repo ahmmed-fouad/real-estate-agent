@@ -1,6 +1,6 @@
 /**
  * WhatsApp Service
- * Handles sending and receiving messages via 360dialog WhatsApp Business API
+ * Handles sending and receiving messages via Twilio WhatsApp Business API
  */
 
 import axios, { AxiosInstance, AxiosError } from 'axios';
@@ -15,23 +15,30 @@ import {
   TemplateMessage,
   ParsedMessage,
   WebhookPayload,
+  TwilioWebhookPayload,
+  TwilioSendResponse,
 } from './types';
 
 const logger = createServiceLogger('WhatsAppService');
 
 export class WhatsAppService {
   private client: AxiosInstance;
-  private phoneNumberId: string;
+  private accountSid: string;
+  private whatsappNumber: string;
 
   constructor() {
-    this.phoneNumberId = whatsappConfig.phoneNumberId;
+    this.accountSid = whatsappConfig.accountSid;
+    this.whatsappNumber = whatsappConfig.whatsappNumber;
 
-    // Initialize Axios client with 360dialog configuration
+    // Initialize Axios client with Twilio configuration
     this.client = axios.create({
       baseURL: whatsappConfig.apiUrl,
+      auth: {
+        username: whatsappConfig.accountSid,
+        password: whatsappConfig.authToken,
+      },
       headers: {
-        'D360-API-KEY': whatsappConfig.accessToken,
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
       timeout: 30000, // 30 seconds timeout
     });
@@ -79,8 +86,9 @@ export class WhatsAppService {
       },
     });
 
-    logger.info('WhatsApp Service initialized', {
-      phoneNumberId: this.phoneNumberId,
+    logger.info('WhatsApp Service initialized with Twilio', {
+      accountSid: this.accountSid,
+      whatsappNumber: this.whatsappNumber,
       apiUrl: whatsappConfig.apiUrl,
       retryEnabled: true,
       maxRetries: 3,
@@ -118,24 +126,28 @@ export class WhatsAppService {
         limit: rateLimitCheck.limit,
       });
 
-      // Send message via 360dialog API
-      const response = await this.client.post<SendMessageResponse>('/messages', {
-        messaging_product: 'whatsapp',
-        recipient_type: 'individual',
-        to: message.to,
-        type: message.type,
-        ...this.formatMessageContent(message),
-      });
+      // Format phone number for Twilio (must include whatsapp: prefix)
+      const toNumber = message.to.startsWith('whatsapp:') 
+        ? message.to 
+        : `whatsapp:${message.to}`;
+
+      // Send message via Twilio API
+      const response = await this.client.post<TwilioSendResponse>(
+        `/Accounts/${this.accountSid}/Messages.json`,
+        new URLSearchParams(this.formatTwilioMessage(message, toNumber))
+      );
 
       // Increment rate limit counter after successful send
       await whatsappRateLimiter.increment();
 
-      logger.info('Message sent successfully', {
+      logger.info('Message sent successfully via Twilio', {
         to: message.to,
-        messageId: response.data.messages[0].id,
+        messageId: response.data.sid,
+        status: response.data.status,
       });
 
-      return response.data;
+      // Convert Twilio response to our standard format
+      return this.convertTwilioResponse(response.data);
     } catch (error) {
       logger.error('Failed to send message', {
         to: message.to,
@@ -325,14 +337,21 @@ export class WhatsAppService {
   }
 
   /**
-   * Parse incoming webhook payload
-   * Extract message details from WhatsApp webhook
+   * Parse incoming webhook payload from Twilio
+   * Extract message details from Twilio WhatsApp webhook
    */
-  parseWebhookPayload(payload: WebhookPayload): ParsedMessage[] {
+  parseWebhookPayload(payload: WebhookPayload | TwilioWebhookPayload): ParsedMessage[] {
     const parsedMessages: ParsedMessage[] = [];
 
     try {
-      for (const entry of payload.entry) {
+      // Check if this is a Twilio webhook (has MessageSid)
+      if ('MessageSid' in payload) {
+        return this.parseTwilioWebhook(payload as TwilioWebhookPayload);
+      }
+
+      // Legacy: Handle Meta/360dialog format (keeping for compatibility)
+      const metaPayload = payload as WebhookPayload;
+      for (const entry of metaPayload.entry) {
         for (const change of entry.changes) {
           const { value } = change;
 
@@ -391,6 +410,78 @@ export class WhatsAppService {
   }
 
   /**
+   * Parse Twilio-specific webhook payload
+   */
+  private parseTwilioWebhook(payload: TwilioWebhookPayload): ParsedMessage[] {
+    try {
+      const numMedia = parseInt(payload.NumMedia || '0', 10);
+      
+      // Determine message type
+      let messageType: 'text' | 'image' | 'video' | 'document' | 'audio' | 'location' = 'text';
+      let content: string | any = payload.Body || '';
+      let mediaId: string | undefined;
+
+      if (numMedia > 0 && payload.MediaContentType0) {
+        const contentType = payload.MediaContentType0;
+        mediaId = payload.MediaUrl0;
+
+        if (contentType.startsWith('image/')) {
+          messageType = 'image';
+          content = {
+            link: payload.MediaUrl0,
+            caption: payload.Body,
+          };
+        } else if (contentType.startsWith('video/')) {
+          messageType = 'video';
+          content = {
+            link: payload.MediaUrl0,
+            caption: payload.Body,
+          };
+        } else if (contentType.startsWith('audio/')) {
+          messageType = 'audio';
+          content = {
+            link: payload.MediaUrl0,
+          };
+        } else {
+          messageType = 'document';
+          content = {
+            link: payload.MediaUrl0,
+            caption: payload.Body,
+          };
+        }
+      } else if (payload.Latitude && payload.Longitude) {
+        messageType = 'location';
+        content = {
+          latitude: parseFloat(payload.Latitude),
+          longitude: parseFloat(payload.Longitude),
+        };
+      }
+
+      const parsed: ParsedMessage = {
+        messageId: payload.MessageSid,
+        from: payload.From.replace('whatsapp:', ''),
+        timestamp: new Date().toISOString(),
+        type: messageType,
+        content,
+        mediaId,
+      };
+
+      logger.info('Parsed incoming Twilio message', {
+        messageId: parsed.messageId,
+        from: parsed.from,
+        type: parsed.type,
+      });
+
+      return [parsed];
+    } catch (error) {
+      logger.error('Error parsing Twilio webhook payload', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      return [];
+    }
+  }
+
+  /**
    * Extract message content based on type
    */
   private extractMessageContent(message: any): string | any {
@@ -443,36 +534,95 @@ export class WhatsAppService {
   }
 
   /**
-   * Format message content for API request
+   * Format message for Twilio API (URL-encoded parameters)
    */
-  private formatMessageContent(message: WhatsAppMessage): object {
-    const content: any = {};
+  private formatTwilioMessage(
+    message: WhatsAppMessage,
+    toNumber: string
+  ): Record<string, string> {
+    const params: Record<string, string> = {
+      From: this.whatsappNumber,
+      To: toNumber,
+    };
 
     switch (message.type) {
       case 'text':
-        content.text = message.text;
+        params.Body = message.text?.body || '';
         break;
+
       case 'image':
-        content.image = message.image;
+        if (message.image?.link) {
+          params.MediaUrl = message.image.link;
+          params.Body = message.image.caption || '';
+        }
         break;
+
       case 'video':
-        content.video = message.video;
+        if (message.video?.link) {
+          params.MediaUrl = message.video.link;
+          params.Body = message.video.caption || '';
+        }
         break;
+
       case 'document':
-        content.document = message.document;
+        if (message.document?.link) {
+          params.MediaUrl = message.document.link;
+          params.Body = message.document.caption || message.document.filename || '';
+        }
         break;
+
       case 'location':
-        content.location = message.location;
+        if (message.location) {
+          // Twilio doesn't natively support location messages via API
+          // Send as text with coordinates
+          const locationText = `📍 Location: ${message.location.name || 'Shared location'}\n` +
+            `Coordinates: ${message.location.latitude}, ${message.location.longitude}\n` +
+            `${message.location.address || ''}`;
+          params.Body = locationText;
+        }
         break;
+
       case 'audio':
-        content.audio = message.audio;
+        if (message.audio?.link) {
+          params.MediaUrl = message.audio.link;
+        }
         break;
+
       case 'interactive':
-        content.interactive = message.interactive;
+        // Twilio doesn't support interactive messages in the same way
+        // Convert to text with options
+        if (message.interactive?.type === 'button') {
+          params.Body = message.interactive.body.text;
+        } else if (message.interactive?.type === 'list') {
+          params.Body = message.interactive.body.text;
+        }
         break;
+
+      default:
+        params.Body = '';
     }
 
-    return content;
+    return params;
+  }
+
+  /**
+   * Convert Twilio response to our standard SendMessageResponse format
+   */
+  private convertTwilioResponse(twilioResponse: TwilioSendResponse): SendMessageResponse {
+    return {
+      messaging_product: 'whatsapp',
+      contacts: [
+        {
+          input: twilioResponse.to,
+          wa_id: twilioResponse.to.replace('whatsapp:', ''),
+        },
+      ],
+      messages: [
+        {
+          id: twilioResponse.sid,
+        },
+      ],
+    };
   }
 
   /**
@@ -576,11 +726,12 @@ export class WhatsAppService {
       const mediaInfo = await this.getMediaUrl(mediaId);
 
       // Download the actual file
-      // Note: WhatsApp media URLs require authorization
+      // Note: Twilio media URLs require Basic Auth
       const response = await axios.get(mediaInfo.url, {
         responseType: 'arraybuffer',
-        headers: {
-          Authorization: `Bearer ${whatsappConfig.accessToken}`,
+        auth: {
+          username: whatsappConfig.accountSid,
+          password: whatsappConfig.authToken,
         },
         timeout: 60000, // 60 seconds for large files
       });

@@ -1,6 +1,6 @@
 /**
  * WhatsApp Business API Types
- * Based on 360dialog API specifications
+ * Based on Twilio WhatsApp API specifications
  */
 
 // Message Types
@@ -216,5 +216,56 @@ export interface TemplateMessage {
       }>;
     }>;
   };
+}
+
+// Twilio-specific types
+
+// Twilio Webhook Payload (incoming messages)
+export interface TwilioWebhookPayload {
+  MessageSid: string;
+  AccountSid: string;
+  From: string; // whatsapp:+1234567890
+  To: string; // whatsapp:+14155238886
+  Body: string;
+  NumMedia?: string;
+  MediaUrl0?: string;
+  MediaContentType0?: string;
+  Latitude?: string;
+  Longitude?: string;
+  [key: string]: string | undefined;
+}
+
+// Twilio Send Response
+export interface TwilioSendResponse {
+  sid: string;
+  date_created: string;
+  date_updated: string;
+  date_sent: string | null;
+  account_sid: string;
+  to: string;
+  from: string;
+  messaging_service_sid: string | null;
+  body: string;
+  status: 'queued' | 'sending' | 'sent' | 'delivered' | 'undelivered' | 'failed';
+  num_segments: string;
+  num_media: string;
+  direction: 'inbound' | 'outbound-api' | 'outbound-call' | 'outbound-reply';
+  api_version: string;
+  price: string | null;
+  price_unit: string;
+  error_code: string | null;
+  error_message: string | null;
+  uri: string;
+  subresource_uris: {
+    media: string;
+  };
+}
+
+// Twilio Error Response
+export interface TwilioError {
+  code: number;
+  message: string;
+  more_info: string;
+  status: number;
 }
 

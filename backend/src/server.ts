@@ -6,8 +6,10 @@
 import express, { Express } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import swaggerUi from 'swagger-ui-express';
 import { config } from 'dotenv';
 import routes from './api/routes';
+import { swaggerSpec } from './config/swagger.config';
 import { errorHandler, notFoundHandler } from './api/middleware/error.middleware';
 import { apiRateLimiter } from './api/middleware/rate-limit.middleware';
 import { logger } from './utils/logger';
@@ -16,6 +18,7 @@ import { processMessage } from './services/queue/message-processor';
 import { sessionManager, idleCheckService } from './services/session';
 import { whatsappRateLimiter } from './services/rate-limiter';
 import { redisManager } from './config/redis-manager';
+import { disconnectPrisma } from './config/prisma-client';
 
 // Load environment variables
 config();
@@ -78,6 +81,13 @@ app.use((req, _res, next) => {
  */
 app.use('/api', routes);
 
+// API Documentation (Swagger UI)
+// As per plan Task 3.1, Deliverable line 749: "API documentation (Swagger/OpenAPI)"
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+  customCss: '.swagger-ui .topbar { display: none }',
+  customSiteTitle: 'WhatsApp AI Agent API Docs',
+}));
+
 // Root health check
 app.get('/', (_req, res) => {
   res.json({
@@ -86,6 +96,7 @@ app.get('/', (_req, res) => {
     version: '1.0.0',
     environment: NODE_ENV,
     timestamp: new Date().toISOString(),
+    documentation: '/api-docs',
   });
 });
 
@@ -100,10 +111,11 @@ app.use(errorHandler);
  */
 const startServer = async () => {
   try {
-    // Validate required environment variables
+    // Validate required environment variables (Twilio)
     const requiredEnvVars = [
-      'WHATSAPP_ACCESS_TOKEN',
-      'WHATSAPP_PHONE_NUMBER_ID',
+      'TWILIO_ACCOUNT_SID',
+      'TWILIO_AUTH_TOKEN',
+      'TWILIO_WHATSAPP_NUMBER',
       'WHATSAPP_VERIFY_TOKEN',
     ];
 
@@ -142,6 +154,7 @@ const startServer = async () => {
         health: `http://localhost:${PORT}/`,
         apiHealth: `http://localhost:${PORT}/api/health`,
         webhook: `http://localhost:${PORT}/api/webhook/whatsapp`,
+        apiDocs: `http://localhost:${PORT}/api-docs`,
       });
 
       if (NODE_ENV === 'development') {
@@ -181,23 +194,25 @@ process.on('uncaughtException', (error: Error) => {
   process.exit(1);
 });
 
-// Graceful shutdown (FIXED: Issue #1 - Close all Redis connections)
+// Graceful shutdown (FIXED: Issue #1 - Close all connections)
 process.on('SIGTERM', async () => {
-  logger.info('SIGTERM signal received: closing HTTP server, queue, idle checker, rate limiter, sessions, and Redis');
+  logger.info('SIGTERM signal received: closing HTTP server, queue, idle checker, rate limiter, sessions, Prisma, and Redis');
   await messageQueue.stopProcessing();
   await idleCheckService.stop();
   await whatsappRateLimiter.close();
   await sessionManager.close();
+  await disconnectPrisma(); // Disconnect Prisma client
   await redisManager.closeAll(); // Close all Redis connections
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
-  logger.info('SIGINT signal received: closing HTTP server, queue, idle checker, rate limiter, sessions, and Redis');
+  logger.info('SIGINT signal received: closing HTTP server, queue, idle checker, rate limiter, sessions, Prisma, and Redis');
   await messageQueue.stopProcessing();
   await idleCheckService.stop();
   await whatsappRateLimiter.close();
   await sessionManager.close();
+  await disconnectPrisma(); // Disconnect Prisma client
   await redisManager.closeAll(); // Close all Redis connections
   process.exit(0);
 });

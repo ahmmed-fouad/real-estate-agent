@@ -1,5 +1,5 @@
 /**
- * WhatsApp (360dialog) Configuration
+ * WhatsApp (Twilio) Configuration
  * Loads and validates WhatsApp-related environment variables
  */
 
@@ -8,8 +8,9 @@ import { config } from 'dotenv';
 config();
 
 export interface WhatsAppConfig {
-  accessToken: string;
-  phoneNumberId: string;
+  accountSid: string;
+  authToken: string;
+  whatsappNumber: string;
   verifyToken: string;
   apiUrl: string;
   webhookPath: string;
@@ -19,18 +20,23 @@ export interface WhatsAppConfig {
  * Get WhatsApp configuration from environment variables
  */
 export const getWhatsAppConfig = (): WhatsAppConfig => {
-  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const whatsappNumber = process.env.TWILIO_WHATSAPP_NUMBER;
   const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
-  const apiUrl = process.env.WHATSAPP_API_URL || 'https://waba.360dialog.io/v1';
+  const apiUrl = process.env.WHATSAPP_API_URL || 'https://api.twilio.com/2010-04-01';
   const webhookPath = process.env.WEBHOOK_PATH || '/webhook/whatsapp';
 
-  if (!accessToken) {
-    throw new Error('WHATSAPP_ACCESS_TOKEN is not set in environment variables');
+  if (!accountSid) {
+    throw new Error('TWILIO_ACCOUNT_SID is not set in environment variables');
   }
 
-  if (!phoneNumberId) {
-    throw new Error('WHATSAPP_PHONE_NUMBER_ID is not set in environment variables');
+  if (!authToken) {
+    throw new Error('TWILIO_AUTH_TOKEN is not set in environment variables');
+  }
+
+  if (!whatsappNumber) {
+    throw new Error('TWILIO_WHATSAPP_NUMBER is not set in environment variables');
   }
 
   if (!verifyToken) {
@@ -38,8 +44,9 @@ export const getWhatsAppConfig = (): WhatsAppConfig => {
   }
 
   return {
-    accessToken,
-    phoneNumberId,
+    accountSid,
+    authToken,
+    whatsappNumber,
     verifyToken,
     apiUrl,
     webhookPath,

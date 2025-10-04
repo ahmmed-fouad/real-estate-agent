@@ -5,10 +5,10 @@
 
 import { Request, Response } from 'express';
 import { whatsappConfig } from '../../config/whatsapp.config';
-import { whatsappService } from '../../services/whatsapp/whatsapp.service';
 import { messageQueue } from '../../services/queue';
 import { createServiceLogger } from '../../utils/logger';
 import { verifyWebhookSignature } from '../../utils/crypto';
+import { ErrorResponse } from '../../utils';
 import { WebhookPayload } from '../../services/whatsapp/types';
 
 const logger = createServiceLogger('WebhookController');
@@ -49,14 +49,7 @@ export class WebhookController {
         });
       }
     } catch (error) {
-      logger.error('Error in webhook verification', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
-
-      res.status(500).json({
-        error: 'Internal server error',
-        message: 'Failed to process webhook verification',
-      });
+      return ErrorResponse.send(res, error, 'Failed to process webhook verification', 500);
     }
   }
 
@@ -65,106 +58,123 @@ export class WebhookController {
    * Handles incoming messages from WhatsApp
    * Must respond within 5 seconds or WhatsApp will retry
    */
-  async receiveWebhook(req: Request, res: Response): Promise<void> {
+  async receiveMessage(req: Request, res: Response): Promise<void> {
     try {
-      // Validate webhook signature if enabled (security best practice)
-      // Note: 360dialog may not require this, but it's good to have for security
-      const webhookSecret = process.env.WHATSAPP_WEBHOOK_SECRET;
-      
-      if (webhookSecret) {
-        const signature = req.headers['x-hub-signature-256'] as string;
-        const rawBody = req.rawBody || JSON.stringify(req.body);
+      const signature = req.headers['x-hub-signature-256'] as string;
+      const rawBody = req.rawBody;
+      const webhookSecret = process.env.WHATSAPP_WEBHOOK_SECRET || whatsappConfig.verifyToken;
 
-        if (!signature) {
-          logger.warn('Webhook signature missing but validation is enabled');
-        } else {
-          // Remove 'sha256=' prefix if present
-          const signatureHash = signature.startsWith('sha256=')
-            ? signature.substring(7)
-            : signature;
+      // Validate webhook signature for security
+      if (!rawBody) {
+        logger.error('Missing raw body for signature verification');
+        return ErrorResponse.unauthorized(res, 'Invalid request format');
+      }
 
-          const isValid = verifyWebhookSignature(rawBody, signatureHash, webhookSecret);
+      if (signature) {
+        const isValid = verifyWebhookSignature(
+          rawBody,
+          signature,
+          webhookSecret
+        );
 
-          if (!isValid) {
-            logger.error('Webhook signature validation failed');
-            res.status(401).json({
-              error: 'Unauthorized',
-              message: 'Invalid webhook signature',
-            });
-            return;
-          }
-
-          logger.debug('Webhook signature validated successfully');
+        if (!isValid) {
+          logger.warn('Invalid webhook signature received');
+          return ErrorResponse.unauthorized(res, 'Invalid signature');
         }
       }
 
       const payload: WebhookPayload = req.body;
 
-      logger.info('Webhook received', {
-        object: payload.object,
-        entriesCount: payload.entry?.length || 0,
+      logger.info('Webhook message received', {
+        entries: payload.entry?.length || 0,
       });
 
-      // Immediately respond with 200 OK (< 5 seconds requirement)
+      // Respond immediately to WhatsApp (must be within 5 seconds)
       res.status(200).json({ success: true });
 
-      // Process the webhook asynchronously (don't block response)
-      this.processWebhookAsync(payload);
+      // Process the webhook asynchronously
+      // This ensures we respond to WhatsApp quickly
+      this.processWebhookAsync(payload).catch((err) => {
+        logger.error('Async webhook processing failed', {
+          error: err instanceof Error ? err.message : 'Unknown error',
+        });
+      });
     } catch (error) {
-      logger.error('Error receiving webhook', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
-
-      // Still return 200 to avoid WhatsApp retries
-      res.status(200).json({ success: true });
+      return ErrorResponse.send(res, error, 'Failed to process webhook message', 500);
     }
   }
 
   /**
    * Process webhook payload asynchronously
-   * This runs after we've already responded to WhatsApp
+   * Extracts messages and queues them for processing
    */
-  private async processWebhookAsync(payload: WebhookPayload): Promise<void> {
+  private async processWebhookAsync(payload: WebhookPayload | any): Promise<void> {
     try {
-      // Validate payload structure
-      if (payload.object !== 'whatsapp_business_account') {
-        logger.warn('Received non-WhatsApp webhook', { object: payload.object });
-        return;
-      }
+      // Extract messages from the payload
+      const messages = [];
 
-      // Parse incoming messages
-      const messages = whatsappService.parseWebhookPayload(payload);
+      if (payload.entry) {
+        for (const entry of payload.entry) {
+          if (entry.changes) {
+            for (const change of entry.changes) {
+              if (change.value?.messages) {
+                for (const message of change.value.messages) {
+                  messages.push({
+                    from: message.from,
+                    messageId: message.id,
+                    timestamp: message.timestamp,
+                    type: message.type,
+                    text: message.text?.body,
+                    image: message.image,
+                    video: message.video,
+                    document: message.document,
+                    audio: message.audio,
+                    location: message.location,
+                    interactive: message.interactive,
+                  });
+                }
+              }
 
-      if (messages.length === 0) {
-        logger.debug('No messages to process in webhook payload');
-        return;
-      }
-
-      logger.info(`Processing ${messages.length} message(s)`);
-
-      // Process each message - Add to Bull queue as per plan (lines 231, 271, 95)
-      for (const message of messages) {
-        try {
-          // Mark message as read immediately
-          await whatsappService.markAsRead(message.messageId);
-
-          // Add message to Bull queue for async processing
-          // This implements the queue system requirement from the plan
-          await messageQueue.addMessage(message);
-
-          logger.info('Message successfully queued for processing', {
-            messageId: message.messageId,
-            from: message.from,
-            type: message.type,
-            hasMediaId: !!message.mediaId,
-          });
-        } catch (error) {
-          logger.error('Error queueing message', {
-            messageId: message.messageId,
-            error: error instanceof Error ? error.message : 'Unknown error',
-          });
-          // Continue processing other messages even if one fails
+              // Handle status updates (delivered, read, etc.)
+              if (change.value?.statuses) {
+                for (const status of change.value.statuses) {
+                  logger.info('Message status update', {
+                    messageId: status.id,
+                    status: status.status,
+                    timestamp: status.timestamp,
+                  });
+                }
+              }
+            }
+          }
         }
+      }
+
+      // Queue messages for processing
+      for (const message of messages) {
+        const parsedMessage: any = {
+          from: message.from,
+          messageId: message.messageId,
+          content: message.text || '',
+          type: message.type,
+          timestamp: new Date(parseInt(message.timestamp) * 1000).toISOString(),
+        };
+
+        // Add media fields if they exist
+        if (message.image) parsedMessage.mediaId = message.image.id;
+        if (message.video) parsedMessage.mediaId = message.video.id;
+        if (message.document) parsedMessage.mediaId = message.document.id;
+        if (message.audio) parsedMessage.mediaId = message.audio.id;
+        if (message.location) parsedMessage.location = message.location;
+        if (message.interactive) parsedMessage.interactive = message.interactive;
+
+        await messageQueue.addMessage(parsedMessage);
+
+        logger.info('Message queued for processing', {
+          from: message.from,
+          messageId: message.messageId,
+          type: message.type,
+        });
       }
 
       logger.info('Webhook processing completed', {
@@ -183,13 +193,11 @@ export class WebhookController {
    */
   async healthCheck(_req: Request, res: Response): Promise<void> {
     res.status(200).json({
-      status: 'healthy',
+      status: 'ok',
       service: 'WhatsApp Webhook',
-      timestamp: new Date().toISOString(),
     });
   }
 }
 
 // Export singleton instance
 export const webhookController = new WebhookController();
-
