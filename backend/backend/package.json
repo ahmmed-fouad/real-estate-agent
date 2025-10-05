@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "@types/csv-parse": "^1.2.5",
+    "@types/multer": "^2.0.0",
+    "csv-parse": "^6.1.0",
+    "multer": "^2.0.2",
+    "xlsx": "^0.18.5"
+  }
+}

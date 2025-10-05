@@ -6,6 +6,15 @@
 
 import { Router } from 'express';
 import * as propertyController from '../controllers/property.controller';
+
+// Optional multer import - install with: npm install multer @types/multer
+let multer: any;
+try {
+  multer = require('multer');
+} catch (error) {
+  // Multer not installed
+  multer = null;
+}
 import { authenticate } from '../middleware/auth.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -18,8 +27,153 @@ import {
 
 const router = Router();
 
+// Configure multer for file uploads (Fix #3: CSV/Excel upload)
+// Note: Install with: npm install multer @types/multer
+let upload: any;
+if (multer) {
+  upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10MB max file size
+    },
+    fileFilter: (_req: any, file: any, cb: any) => {
+      const allowedMimes = [
+        'text/csv',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ];
+      if (allowedMimes.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error('Invalid file type. Only CSV and Excel files are allowed'));
+      }
+    },
+  });
+} else {
+  // Multer not installed - upload endpoint will fail gracefully
+  upload = {
+    single: () => (_req: any, _res: any, next: any) => {
+      next(new Error('Multer not installed. Run: npm install multer @types/multer'));
+    },
+  };
+}
+
 // All routes require authentication
 router.use(authenticate as any);
+
+/**
+ * @swagger
+ * /api/properties/template:
+ *   get:
+ *     summary: Download property upload template
+ *     description: Download Excel template for bulk property upload with instructions and examples
+ *     tags: [Property Management]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Template file downloaded successfully
+ *         content:
+ *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+router.get('/template', propertyController.downloadTemplate as any);
+
+/**
+ * @swagger
+ * /api/properties/upload-file:
+ *   post:
+ *     summary: Upload CSV/Excel file for bulk property import
+ *     description: Upload and process CSV or Excel file containing property data
+ *     tags: [Property Management]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       202:
+ *         description: File processed and queued for import
+ *       400:
+ *         description: Invalid file or validation errors
+ *       401:
+ *         description: Unauthorized
+ */
+router.post('/upload-file', upload.single('file'), propertyController.uploadFile as any);
+
+/**
+ * @swagger
+ * /api/properties/batch/{batchId}/progress:
+ *   get:
+ *     summary: Get batch upload progress
+ *     description: Retrieve real-time progress for a batch upload
+ *     tags: [Property Management]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: batchId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Progress retrieved successfully
+ *       404:
+ *         description: Batch not found
+ */
+router.get('/batch/:batchId/progress', propertyController.getBatchProgress as any);
+
+/**
+ * @swagger
+ * /api/properties/batch/{batchId}/result:
+ *   get:
+ *     summary: Get batch upload result
+ *     description: Retrieve final results for a completed batch upload
+ *     tags: [Property Management]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: batchId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Results retrieved successfully
+ *       404:
+ *         description: Batch not found
+ */
+router.get('/batch/:batchId/result', propertyController.getBatchResult as any);
+
+/**
+ * @swagger
+ * /api/properties/batch/stats:
+ *   get:
+ *     summary: Get batch queue statistics
+ *     description: Retrieve statistics about the batch processing queue
+ *     tags: [Property Management]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Statistics retrieved successfully
+ */
+router.get('/batch/stats', propertyController.getBatchStats as any);
 
 /**
  * @swagger

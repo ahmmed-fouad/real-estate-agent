@@ -27,6 +27,10 @@ import { prisma } from '../../config/prisma-client';
 import { ragService } from '../../services/ai';
 import { propertyParser } from '../../utils/property-parser';
 import { ErrorResponse, paginate } from '../../utils';
+import { propertyTemplateService } from '../../services/template';
+import { propertyBatchQueue } from '../../services/queue/property-batch-queue.service';
+import { propertyCreationService } from '../../services/property';
+import { validateAndQueueProperties } from './helpers/property-upload.helper';
 import {
   CreatePropertyData,
   UpdatePropertyData,
@@ -56,70 +60,25 @@ export const createProperty = async (
       projectName: propertyData.projectName,
     });
 
-    // Parse property data to PropertyDocument format
-    const parsedProperty = propertyParser.parsePropertyData({
-      agentId,
-      ...propertyData,
-    });
-
-    // Ingest property (stores in vector DB and generates embedding)
-    // As per plan line 727: "Generate embeddings automatically"
-    const result = await ragService.ingestProperty(parsedProperty);
+    // Use centralized property creation service (Fix #1: Eliminates duplication)
+    const result = await propertyCreationService.createProperty(
+      propertyData as any,
+      agentId
+    );
 
     if (!result.success) {
-      throw new Error('Failed to generate property embedding');
+      throw new Error(result.error || 'Failed to create property');
     }
 
-    // Store in SQL database
-    // As per plan line 728: "Store in both SQL and vector DB"
-    const property = await prisma.property.create({
-      data: {
-        id: parsedProperty.id,
-        agentId,
-        projectName: propertyData.projectName,
-        developerName: propertyData.developerName || null,
-        propertyType: propertyData.propertyType,
-        city: propertyData.city,
-        district: propertyData.district,
-        address: propertyData.address || null,
-        latitude: propertyData.latitude ? new Prisma.Decimal(propertyData.latitude) : null,
-        longitude: propertyData.longitude ? new Prisma.Decimal(propertyData.longitude) : null,
-        area: new Prisma.Decimal(propertyData.area),
-        bedrooms: propertyData.bedrooms,
-        bathrooms: propertyData.bathrooms,
-        floors: propertyData.floors || null,
-        basePrice: new Prisma.Decimal(propertyData.basePrice),
-        pricePerMeter: new Prisma.Decimal(propertyData.pricePerMeter),
-        currency: propertyData.currency || 'EGP',
-        amenities: propertyData.amenities,
-        description: propertyData.description || null,
-        deliveryDate: propertyData.deliveryDate ? new Date(propertyData.deliveryDate) : null,
-        images: propertyData.images,
-        documents: propertyData.documents,
-        videoUrl: propertyData.videoUrl || null,
-        status: propertyData.status || 'available',
-        embeddingText: result.embeddingText,
-        paymentPlans: propertyData.paymentPlans
-          ? {
-              create: propertyData.paymentPlans.map((plan) => ({
-                planName: plan.planName,
-                downPaymentPercentage: new Prisma.Decimal(plan.downPaymentPercentage),
-                installmentYears: plan.installmentYears,
-                monthlyPayment: new Prisma.Decimal(plan.monthlyPayment),
-                description: plan.description || null,
-              })),
-            }
-          : undefined,
-      },
-      include: {
-        paymentPlans: true,
-      },
+    // Fetch created property with relations
+    const property = await prisma.property.findUnique({
+      where: { id: result.propertyId },
+      include: { paymentPlans: true },
     });
 
     logger.info('Property created successfully', {
-      propertyId: property.id,
+      propertyId: property?.id,
       agentId,
-      projectName: property.projectName,
     });
 
     res.status(201).json({
@@ -458,8 +417,9 @@ export const deleteProperty = async (
  * POST /api/properties/bulk-upload
  * As per plan line 720
  * 
+ * Fix #2: Now uses batch queue system (lines 887-891)
+ * Fix #6: Validates all properties before queueing
  * Supports JSON array format
- * TODO: Add CSV/Excel support in Phase 3, Task 3.3
  */
 export const bulkUpload = async (
   req: AuthenticatedRequest<{}, {}, { properties: CreatePropertyData[] }>,
@@ -478,92 +438,218 @@ export const bulkUpload = async (
       count: properties.length,
     });
 
-    const results = {
-      success: [] as string[],
-      failed: [] as { index: number; error: string }[],
-    };
-
-    // Process each property
-    for (let i = 0; i < properties.length; i++) {
-      try {
-        const propertyData = properties[i];
-
-        // Parse and ingest
-        const parsedProperty = propertyParser.parsePropertyData({
-          agentId,
-          ...propertyData,
-        });
-
-        const ragResult = await ragService.ingestProperty(parsedProperty);
-
-        if (!ragResult.success) {
-          throw new Error('Failed to generate embedding');
-        }
-
-        // Store in database
-        await prisma.property.create({
-          data: {
-            id: parsedProperty.id,
-            agentId,
-            projectName: propertyData.projectName,
-            developerName: propertyData.developerName || null,
-            propertyType: propertyData.propertyType,
-            city: propertyData.city,
-            district: propertyData.district,
-            address: propertyData.address || null,
-            latitude: propertyData.latitude ? new Prisma.Decimal(propertyData.latitude) : null,
-            longitude: propertyData.longitude ? new Prisma.Decimal(propertyData.longitude) : null,
-            area: new Prisma.Decimal(propertyData.area),
-            bedrooms: propertyData.bedrooms,
-            bathrooms: propertyData.bathrooms,
-            floors: propertyData.floors || null,
-            basePrice: new Prisma.Decimal(propertyData.basePrice),
-            pricePerMeter: new Prisma.Decimal(propertyData.pricePerMeter),
-            currency: propertyData.currency || 'EGP',
-            amenities: propertyData.amenities,
-            description: propertyData.description || null,
-            deliveryDate: propertyData.deliveryDate ? new Date(propertyData.deliveryDate) : null,
-            images: propertyData.images,
-            documents: propertyData.documents,
-            videoUrl: propertyData.videoUrl || null,
-            status: propertyData.status || 'available',
-            embeddingText: ragResult.embeddingText,
-            paymentPlans: propertyData.paymentPlans
-              ? {
-                  create: propertyData.paymentPlans.map((plan) => ({
-                    planName: plan.planName,
-                    downPaymentPercentage: new Prisma.Decimal(plan.downPaymentPercentage),
-                    installmentYears: plan.installmentYears,
-                    monthlyPayment: new Prisma.Decimal(plan.monthlyPayment),
-                    description: plan.description || null,
-                  })),
-                }
-              : undefined,
-          },
-        });
-
-        results.success.push(parsedProperty.id);
-      } catch (error) {
-        results.failed.push({
-          index: i,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
-      }
-    }
-
-    logger.info('Bulk upload completed', {
+    // Use helper to eliminate duplication with uploadFile
+    const result = await validateAndQueueProperties(
+      properties.map((p: any) => ({ ...p, agentId })),
       agentId,
-      success: results.success.length,
-      failed: results.failed.length,
-    });
+      'json',
+      res,
+      { includeRowOffset: false, includeTotal: false }
+    );
 
-    res.status(results.failed.length === 0 ? 201 : 207).json({
-      success: results.failed.length === 0,
-      message: `Uploaded ${results.success.length} properties, ${results.failed.length} failed`,
-      data: { results },
-    });
+    res.status(result.statusCode).json(result.response);
   } catch (error) {
     return ErrorResponse.send(res, error, 'Bulk upload failed', 500, { agentId: req.user.id });
+  }
+};
+
+/**
+ * Download property upload template
+ * GET /api/properties/template
+ * Task 3.3, Subtask 3: Template Generation (lines 882-886)
+ * 
+ * Returns Excel template with:
+ * - Empty template sheet with headers
+ * - Example data sheet
+ * - Instructions sheet
+ */
+export const downloadTemplate = async (
+  _req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    logger.info('Template download requested');
+
+    // Generate template
+    const templateBuffer = propertyTemplateService.generateTemplate();
+    const filename = propertyTemplateService.getTemplateFilename();
+
+    // Set headers for file download
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', templateBuffer.length);
+
+    logger.info('Template downloaded successfully', { filename });
+
+    // Send buffer
+    res.send(templateBuffer);
+  } catch (error) {
+    return ErrorResponse.send(res, error, 'Failed to generate template', 500);
+  }
+};
+
+/**
+ * Upload CSV/Excel file for bulk import
+ * POST /api/properties/upload-file
+ * Fix #3: CSV/Excel file upload support (lines 851-854)
+ * 
+ * Handles multipart/form-data file uploads
+ */
+export const uploadFile = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const agentId = req.user.id;
+    const file = (req as any).file;
+
+    if (!file) {
+      return ErrorResponse.badRequest(res, 'No file uploaded');
+    }
+
+    logger.info('File upload attempt', {
+      agentId,
+      filename: file.originalname,
+      size: file.size,
+      mimetype: file.mimetype,
+    });
+
+    // Determine file type
+    const ext = file.originalname.toLowerCase().split('.').pop();
+    let properties: any[];
+
+    if (ext === 'csv') {
+      // Parse CSV
+      const csvData = file.buffer.toString('utf-8');
+      properties = propertyParser.parseCSV(csvData, agentId);
+    } else if (ext === 'xlsx' || ext === 'xls') {
+      // Parse Excel
+      properties = propertyParser.parseExcel(file.buffer, agentId);
+    } else {
+      return ErrorResponse.badRequest(res, 'Unsupported file format. Please upload CSV or Excel file');
+    }
+
+    if (properties.length === 0) {
+      return ErrorResponse.badRequest(res, 'No valid properties found in file');
+    }
+
+    logger.info('File parsed successfully', {
+      agentId,
+      propertyCount: properties.length,
+    });
+
+    // Use helper to eliminate duplication with bulkUpload
+    const result = await validateAndQueueProperties(
+      properties,
+      agentId,
+      ext === 'csv' ? 'csv' : 'excel',
+      res,
+      { includeRowOffset: true, includeTotal: true } // CSV/Excel shows row numbers
+    );
+
+    // Add filename to response if successful
+    if (result.success && result.response.data) {
+      result.response.data.filename = file.originalname;
+      result.response.message = 'File processed and properties queued for import';
+    }
+
+    res.status(result.statusCode).json(result.response);
+  } catch (error) {
+    return ErrorResponse.send(res, error, 'File upload failed', 500, { agentId: req.user.id });
+  }
+};
+
+/**
+ * Get batch upload progress
+ * GET /api/properties/batch/:batchId/progress
+ * Fix #4: Progress tracking endpoint (line 889)
+ */
+export const getBatchProgress = async (
+  req: AuthenticatedRequest<{ batchId: string }>,
+  res: Response
+): Promise<void> => {
+  try {
+    const { batchId } = req.params;
+    const agentId = req.user.id;
+
+    const progress = await propertyBatchQueue.getProgress(batchId);
+
+    if (!progress) {
+      return ErrorResponse.notFound(res, 'Batch not found or expired');
+    }
+
+    logger.debug('Batch progress retrieved', {
+      batchId,
+      agentId,
+      percentage: progress.percentage,
+    });
+
+    res.status(200).json({
+      success: true,
+      data: { progress },
+    });
+  } catch (error) {
+    return ErrorResponse.send(res, error, 'Failed to get batch progress', 500, {
+      batchId: req.params.batchId,
+    });
+  }
+};
+
+/**
+ * Get batch upload result
+ * GET /api/properties/batch/:batchId/result
+ * Fix #4: Result endpoint (line 890)
+ */
+export const getBatchResult = async (
+  req: AuthenticatedRequest<{ batchId: string }>,
+  res: Response
+): Promise<void> => {
+  try {
+    const { batchId } = req.params;
+    const agentId = req.user.id;
+
+    const result = await propertyBatchQueue.getBatchResult(batchId);
+
+    if (!result) {
+      return ErrorResponse.notFound(res, 'Batch result not found or expired');
+    }
+
+    logger.info('Batch result retrieved', {
+      batchId,
+      agentId,
+      successful: result.successful,
+      failed: result.failed,
+    });
+
+    res.status(200).json({
+      success: true,
+      data: { result },
+    });
+  } catch (error) {
+    return ErrorResponse.send(res, error, 'Failed to get batch result', 500, {
+      batchId: req.params.batchId,
+    });
+  }
+};
+
+/**
+ * Get batch queue statistics
+ * GET /api/properties/batch/stats
+ * Fix #4: Queue stats endpoint
+ */
+export const getBatchStats = async (
+  _req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const stats = await propertyBatchQueue.getStats();
+
+    res.status(200).json({
+      success: true,
+      data: { stats },
+    });
+  } catch (error) {
+    return ErrorResponse.send(res, error, 'Failed to get batch stats', 500);
   }
 };
 

@@ -3,12 +3,18 @@
  * Parses property data from various formats (JSON, CSV, Excel)
  * As per plan line 442: "Parse property data (JSON, CSV, Excel)"
  * 
- * Full implementation will be in Task 3.3 (lines 847-903)
- * This provides basic parsing utilities
+ * Task 3.3 Implementation (lines 847-903):
+ * - Subtask 1: CSV/Excel Parser (lines 851-854)
+ * - Support .csv, .xlsx formats
+ * - Define expected schema
+ * - Parse and validate data
  */
 
 import { PropertyDocument } from '../services/ai/rag-types';
 import { createServiceLogger } from './logger';
+import { parse } from 'csv-parse/sync';
+import * as XLSX from 'xlsx';
+import { propertyValidationService, ValidationResult } from '../services/validation';
 
 const logger = createServiceLogger('PropertyParser');
 
@@ -193,49 +199,260 @@ export class PropertyParserService {
 
   /**
    * Parse CSV data
-   * Note: Full CSV parsing implementation will be in Task 3.3
-   * This is a placeholder that shows the interface
+   * Task 3.3, Subtask 1: CSV Parser (line 851-854)
+   * 
+   * Expected CSV format:
+   * projectName,developerName,propertyType,city,district,address,latitude,longitude,
+   * area,bedrooms,bathrooms,floors,basePrice,pricePerMeter,currency,
+   * amenities,description,deliveryDate,images,documents,videoUrl,status
+   * 
+   * @param csvData - CSV string content
+   * @param agentId - Agent ID to associate with properties
+   * @returns Array of parsed property data
    */
-  parseCSV(csvData: string): RawPropertyData[] {
-    logger.warn('CSV parsing not fully implemented yet - will be completed in Task 3.3');
-    // TODO: Task 3.3 - Implement full CSV parser
-    return [];
+  parseCSV(csvData: string, agentId: string): RawPropertyData[] {
+    try {
+      logger.info('Parsing CSV data', { agentId });
+
+      // Parse CSV with headers
+      const records = parse(csvData, {
+        columns: true, // First row is headers
+        skip_empty_lines: true,
+        trim: true,
+        cast: true, // Auto-cast numbers
+        cast_date: false, // Don't auto-cast dates (we'll handle manually)
+        relax_column_count: true, // Allow rows with fewer columns
+        on_record: (record) => {
+          // Convert empty strings to undefined
+          Object.keys(record).forEach(key => {
+            if (record[key] === '') {
+              record[key] = undefined;
+            }
+          });
+          return record;
+        },
+      });
+
+      if (!records || records.length === 0) {
+        logger.warn('No records found in CSV');
+        return [];
+      }
+
+      logger.info(`Parsed ${records.length} records from CSV`);
+
+      // Map CSV records to RawPropertyData format
+      const properties: RawPropertyData[] = records.map((record: any, index: number) => {
+        try {
+          return this.mapCsvRowToPropertyData(record, agentId);
+        } catch (error) {
+          logger.error('Error mapping CSV row', {
+            rowIndex: index,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+          throw new Error(`Row ${index + 2}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      });
+
+      logger.info(`Successfully mapped ${properties.length} properties from CSV`);
+      return properties;
+    } catch (error) {
+      logger.error('Error parsing CSV', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      throw new Error(`CSV parsing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   /**
    * Parse Excel data
-   * Note: Full Excel parsing implementation will be in Task 3.3
-   * This is a placeholder that shows the interface
+   * Task 3.3, Subtask 1: Excel Parser (line 851-854)
+   * 
+   * Supports .xlsx and .xls formats
+   * Reads from first sheet or sheet named "Properties"
+   * 
+   * @param excelBuffer - Excel file buffer
+   * @param agentId - Agent ID to associate with properties
+   * @returns Array of parsed property data
    */
-  parseExcel(excelBuffer: Buffer): RawPropertyData[] {
-    logger.warn('Excel parsing not fully implemented yet - will be completed in Task 3.3');
-    // TODO: Task 3.3 - Implement full Excel parser with xlsx library
-    return [];
+  parseExcel(excelBuffer: Buffer, agentId: string): RawPropertyData[] {
+    try {
+      logger.info('Parsing Excel data', { agentId, bufferSize: excelBuffer.length });
+
+      // Read workbook from buffer
+      const workbook = XLSX.read(excelBuffer, { 
+        type: 'buffer',
+        cellDates: false, // We'll handle dates manually
+        cellText: false,
+      });
+
+      if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+        throw new Error('Excel file contains no sheets');
+      }
+
+      // Get first sheet or sheet named "Properties"
+      let sheetName = workbook.SheetNames[0];
+      if (workbook.SheetNames.includes('Properties')) {
+        sheetName = 'Properties';
+      }
+
+      logger.info(`Reading from sheet: ${sheetName}`);
+
+      const worksheet = workbook.Sheets[sheetName];
+      if (!worksheet) {
+        throw new Error(`Sheet "${sheetName}" not found`);
+      }
+
+      // Convert sheet to JSON
+      // { header: 1 } means first row is headers
+      const records: any[] = XLSX.utils.sheet_to_json(worksheet, {
+        header: 1,
+        defval: undefined, // Empty cells become undefined
+        blankrows: false, // Skip blank rows
+      });
+
+      if (records.length < 2) {
+        logger.warn('Excel file has no data rows (only headers or empty)');
+        return [];
+      }
+
+      // First row is headers
+      const headers = records[0];
+      const dataRows = records.slice(1);
+
+      logger.info(`Parsed ${dataRows.length} data rows from Excel`);
+
+      // Map rows to property data
+      const properties: RawPropertyData[] = dataRows
+        .filter((row: any[]) => {
+          // Skip completely empty rows
+          return row.some(cell => cell !== undefined && cell !== null && cell !== '');
+        })
+        .map((row: any[], index: number) => {
+          try {
+            // Convert row array to object using headers
+            const record: any = {};
+            headers.forEach((header: string, i: number) => {
+              if (header && row[i] !== undefined && row[i] !== null && row[i] !== '') {
+                record[header] = row[i];
+              }
+            });
+
+            return this.mapCsvRowToPropertyData(record, agentId);
+          } catch (error) {
+            logger.error('Error mapping Excel row', {
+              rowIndex: index + 2, // +2 because index starts at 0 and we skip header
+              error: error instanceof Error ? error.message : 'Unknown error',
+            });
+            throw new Error(`Row ${index + 2}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        });
+
+      logger.info(`Successfully mapped ${properties.length} properties from Excel`);
+      return properties;
+    } catch (error) {
+      logger.error('Error parsing Excel', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      throw new Error(`Excel parsing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Map CSV/Excel row to RawPropertyData format
+   * Handles type conversions and field mapping
+   * 
+   * @param record - Row object from CSV/Excel
+   * @param agentId - Agent ID to associate with property
+   * @returns Mapped property data
+   */
+  private mapCsvRowToPropertyData(record: any, agentId: string): RawPropertyData {
+    // Helper to safely parse numbers
+    const parseNumber = (value: any): number | undefined => {
+      if (value === undefined || value === null || value === '') return undefined;
+      const num = typeof value === 'number' ? value : parseFloat(String(value).replace(/,/g, ''));
+      return isNaN(num) ? undefined : num;
+    };
+
+    // Helper to safely parse integers
+    const parseInt = (value: any): number | undefined => {
+      const num = parseNumber(value);
+      return num !== undefined ? Math.floor(num) : undefined;
+    };
+
+    // Helper to parse payment plans from JSON string or leave as is
+    const parsePaymentPlans = (value: any): any[] | undefined => {
+      if (!value) return undefined;
+      if (Array.isArray(value)) return value;
+      if (typeof value === 'string') {
+        try {
+          const parsed = JSON.parse(value);
+          return Array.isArray(parsed) ? parsed : undefined;
+        } catch {
+          return undefined;
+        }
+      }
+      return undefined;
+    };
+
+    const mapped: RawPropertyData = {
+      agentId,
+      projectName: record.projectName || record.project_name || '',
+      developerName: record.developerName || record.developer_name,
+      propertyType: record.propertyType || record.property_type || '',
+      
+      // Location
+      city: record.city || '',
+      district: record.district || '',
+      address: record.address,
+      latitude: parseNumber(record.latitude),
+      longitude: parseNumber(record.longitude),
+      
+      // Specifications
+      area: parseNumber(record.area) || 0,
+      bedrooms: parseInt(record.bedrooms) || 0,
+      bathrooms: parseInt(record.bathrooms) || 0,
+      floors: parseInt(record.floors),
+      
+      // Pricing
+      basePrice: parseNumber(record.basePrice || record.base_price) || 0,
+      pricePerMeter: parseNumber(record.pricePerMeter || record.price_per_meter) || 0,
+      currency: record.currency || 'EGP',
+      
+      // Other fields
+      amenities: record.amenities, // Will be parsed by parseArrayField
+      description: record.description,
+      deliveryDate: record.deliveryDate || record.delivery_date,
+      images: record.images,
+      documents: record.documents,
+      videoUrl: record.videoUrl || record.video_url,
+      status: record.status || 'available',
+      paymentPlans: parsePaymentPlans(record.paymentPlans || record.payment_plans),
+    };
+
+    return mapped;
   }
 
   /**
    * Validate property data
-   * Ensures all required fields are present
+   * Uses PropertyValidationService to avoid duplication
+   * Task 3.3, Subtask 2: Data Validation Rules (lines 856-880)
+   * 
+   * @param raw - Raw property data to validate
+   * @returns Validation result
    */
-  validatePropertyData(raw: RawPropertyData): { valid: boolean; errors: string[] } {
-    const errors: string[] = [];
+  validatePropertyData(raw: RawPropertyData): ValidationResult {
+    return propertyValidationService.validatePropertyData(raw);
+  }
 
-    // Required fields
-    if (!raw.agentId) errors.push('agentId is required');
-    if (!raw.projectName) errors.push('projectName is required');
-    if (!raw.propertyType) errors.push('propertyType is required');
-    if (!raw.city) errors.push('city is required');
-    if (!raw.district) errors.push('district is required');
-    if (!raw.area || raw.area <= 0) errors.push('area must be positive number');
-    if (!raw.bedrooms || raw.bedrooms < 0) errors.push('bedrooms must be non-negative');
-    if (!raw.bathrooms || raw.bathrooms < 0) errors.push('bathrooms must be non-negative');
-    if (!raw.basePrice || raw.basePrice <= 0) errors.push('basePrice must be positive number');
-    if (!raw.pricePerMeter || raw.pricePerMeter <= 0) errors.push('pricePerMeter must be positive number');
-
-    return {
-      valid: errors.length === 0,
-      errors,
-    };
+  /**
+   * Validate batch of properties
+   * Task 3.3, Subtask 2: Batch validation support
+   * 
+   * @param properties - Array of properties to validate
+   * @returns Array of validation results
+   */
+  validateBatch(properties: RawPropertyData[]): ValidationResult[] {
+    return propertyValidationService.validateBatch(properties);
   }
 }
 
