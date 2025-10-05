@@ -27,10 +27,11 @@ import {
 
 const router = Router();
 
-// Configure multer for file uploads (Fix #3: CSV/Excel upload)
+// Configure multer for file uploads (Fix #3: CSV/Excel upload + images/documents)
 // Note: Install with: npm install multer @types/multer
 let upload: any;
 if (multer) {
+  // CSV/Excel upload (for bulk property upload)
   upload = multer({
     storage: multer.memoryStorage(),
     limits: {
@@ -41,11 +42,20 @@ if (multer) {
         'text/csv',
         'application/vnd.ms-excel',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        // Images
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
+        'image/webp',
+        // Documents
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       ];
       if (allowedMimes.includes(file.mimetype)) {
         cb(null, true);
       } else {
-        cb(new Error('Invalid file type. Only CSV and Excel files are allowed'));
+        cb(new Error('Invalid file type'));
       }
     },
   });
@@ -55,11 +65,104 @@ if (multer) {
     single: () => (_req: any, _res: any, next: any) => {
       next(new Error('Multer not installed. Run: npm install multer @types/multer'));
     },
+    array: () => (_req: any, _res: any, next: any) => {
+      next(new Error('Multer not installed. Run: npm install multer @types/multer'));
+    },
   };
 }
 
 // All routes require authentication
 router.use(authenticate as any);
+
+/**
+ * @swagger
+ * /api/properties/upload-images:
+ *   post:
+ *     summary: Upload property images
+ *     description: Upload multiple images for properties (multipart/form-data)
+ *     tags: [Property Management]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               images:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *     responses:
+ *       200:
+ *         description: Images uploaded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     urls:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *       400:
+ *         description: No images uploaded
+ *       401:
+ *         description: Unauthorized
+ */
+router.post('/upload-images', upload.array('images', 10), propertyController.uploadImages as any);
+
+/**
+ * @swagger
+ * /api/properties/upload-documents:
+ *   post:
+ *     summary: Upload property documents
+ *     description: Upload multiple documents for properties (multipart/form-data)
+ *     tags: [Property Management]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               documents:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *     responses:
+ *       200:
+ *         description: Documents uploaded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     urls:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *       400:
+ *         description: No documents uploaded
+ *       401:
+ *         description: Unauthorized
+ */
+router.post('/upload-documents', upload.array('documents', 5), propertyController.uploadDocuments as any);
 
 /**
  * @swagger

@@ -1,8 +1,7 @@
 /**
- * Storage Services Export Index
- * Task 3.3, Subtask 5: Image & Document Handling
+ * Storage Services Barrel Export
  */
 
-export * from './file-storage.service';
+export * from './file-upload.service';
 export * from './image-processing.service';
 export * from './pdf-processing.service';

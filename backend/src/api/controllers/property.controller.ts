@@ -31,6 +31,7 @@ import { propertyTemplateService } from '../../services/template';
 import { propertyBatchQueue } from '../../services/queue/property-batch-queue.service';
 import { propertyCreationService } from '../../services/property';
 import { validateAndQueueProperties } from './helpers/property-upload.helper';
+import { fileUploadService } from '../../services/storage';
 import {
   CreatePropertyData,
   UpdatePropertyData,
@@ -650,6 +651,102 @@ export const getBatchStats = async (
     });
   } catch (error) {
     return ErrorResponse.send(res, error, 'Failed to get batch stats', 500);
+  }
+};
+
+/**
+ * Upload property images
+ * POST /api/properties/upload-images
+ * Critical Fix: Missing endpoint for image uploads
+ * 
+ * Accepts multipart/form-data with 'images' field
+ * Returns array of public URLs
+ */
+export const uploadImages = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const agentId = req.user.id;
+    const files = (req as any).files;
+
+    if (!files || files.length === 0) {
+      return ErrorResponse.badRequest(res, 'No images uploaded');
+    }
+
+    logger.info('Image upload request', {
+      agentId,
+      count: files.length,
+      totalSize: files.reduce((sum: number, f: any) => sum + f.size, 0),
+    });
+
+    // Upload to Supabase Storage
+    const uploadResults = await fileUploadService.uploadImages(files, agentId);
+
+    const urls = uploadResults.map(result => result.url);
+
+    logger.info('Images uploaded successfully', {
+      agentId,
+      count: urls.length,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Images uploaded successfully',
+      data: { urls },
+    });
+  } catch (error) {
+    return ErrorResponse.send(res, error, 'Image upload failed', 500, {
+      agentId: req.user.id,
+    });
+  }
+};
+
+/**
+ * Upload property documents
+ * POST /api/properties/upload-documents
+ * Critical Fix: Missing endpoint for document uploads
+ * 
+ * Accepts multipart/form-data with 'documents' field
+ * Returns array of public URLs
+ */
+export const uploadDocuments = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const agentId = req.user.id;
+    const files = (req as any).files;
+
+    if (!files || files.length === 0) {
+      return ErrorResponse.badRequest(res, 'No documents uploaded');
+    }
+
+    logger.info('Document upload request', {
+      agentId,
+      count: files.length,
+      totalSize: files.reduce((sum: number, f: any) => sum + f.size, 0),
+    });
+
+    // Upload to Supabase Storage
+    const uploadResults = await fileUploadService.uploadDocuments(files, agentId);
+
+    const urls = uploadResults.map(result => result.url);
+
+    logger.info('Documents uploaded successfully', {
+      agentId,
+      count: urls.length,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Documents uploaded successfully',
+      data: { urls },
+    });
+  } catch (error) {
+    return ErrorResponse.send(res, error, 'Document upload failed', 500, {
+      agentId: req.user.id,
+    });
   }
 };
 
