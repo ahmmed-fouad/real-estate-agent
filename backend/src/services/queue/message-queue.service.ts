@@ -1,7 +1,7 @@
 /**
  * Message Queue Service using Bull
  * Implements queue system as per plan (lines 231, 271, 95)
- * 
+ *
  * Handles async message processing with:
  * - Job persistence (Redis)
  * - Retry on failure
@@ -68,7 +68,6 @@ export class MessageQueueService {
 
     logger.info('Message Queue Service initialized', {
       queueName: 'whatsapp-messages',
-      redis: `${redisConfig.host}:${redisConfig.port}`,
     });
   }
 
@@ -76,10 +75,7 @@ export class MessageQueueService {
    * Add a message to the queue for processing
    * As per plan line 231: "Queue message for processing"
    */
-  async addMessage(
-    message: ParsedMessage,
-    options?: JobOptions
-  ): Promise<Job<MessageQueueJob>> {
+  async addMessage(message: ParsedMessage, options?: JobOptions): Promise<Job<MessageQueueJob>> {
     try {
       const job = await this.queue.add(
         'process-message',
@@ -114,9 +110,7 @@ export class MessageQueueService {
    * Start processing messages from the queue
    * This will be called when server starts
    */
-  startProcessing(
-    processor: (job: Job<MessageQueueJob>) => Promise<MessageQueueResult>
-  ): void {
+  startProcessing(processor: (job: Job<MessageQueueJob>) => Promise<MessageQueueResult>): void {
     if (this.isProcessing) {
       logger.warn('Queue processing already started');
       return;
@@ -163,12 +157,9 @@ export class MessageQueueService {
    */
   async stopProcessing(): Promise<void> {
     logger.info('Stopping queue processing...');
-    
-    await Promise.all([
-      this.queue.close(),
-      this.deadLetterQueue.close(),
-    ]);
-    
+
+    await Promise.all([this.queue.close(), this.deadLetterQueue.close()]);
+
     this.isProcessing = false;
     logger.info('Queue and DLQ processing stopped');
   }
@@ -249,7 +240,7 @@ export class MessageQueueService {
   async retryFromDLQ(jobId: string): Promise<boolean> {
     try {
       const job = await this.deadLetterQueue.getJob(jobId);
-      
+
       if (!job) {
         logger.warn('Job not found in DLQ', { jobId });
         return false;
@@ -257,7 +248,7 @@ export class MessageQueueService {
 
       // Add back to main queue for retry
       await this.addMessage(job.data.message);
-      
+
       // Remove from DLQ
       await job.remove();
 
@@ -356,4 +347,3 @@ export class MessageQueueService {
 
 // Export singleton instance
 export const messageQueue = new MessageQueueService();
-
