@@ -86,6 +86,8 @@ Safety & Compliance:
   /**
    * Build system prompt from conversation session
    * Convenience method to extract data from session
+   * 
+   * Task 4.1, Subtask 2: Now includes lead qualification guidance
    */
   buildSystemPromptFromSession(
     session: ConversationSession,
@@ -103,9 +105,15 @@ Safety & Compliance:
     // Format extracted information
     const extractedInfo = this.formatExtractedInfo(session);
 
+    // Task 4.1, Subtask 2: Add lead qualification guidance
+    const qualificationGuidance = this.generateQualificationGuidance(session);
+    const contextWithGuidance = additionalContext
+      ? `${additionalContext}\n\n${qualificationGuidance}`
+      : qualificationGuidance;
+
     return this.buildSystemPrompt({
       agentName: session.agentId,
-      context: additionalContext,
+      context: contextWithGuidance,
       conversationHistory,
       extractedInfo,
       language: 'auto', // Auto-detect based on customer messages
@@ -137,8 +145,74 @@ Safety & Compliance:
     if (info.urgency) {
       parts.push(`Urgency: ${info.urgency}`);
     }
+    if (info.purpose) {
+      parts.push(`Purpose: ${info.purpose}`);
+    }
+    if (info.paymentMethod) {
+      parts.push(`Payment Method: ${info.paymentMethod}`);
+    }
 
     return parts.length > 0 ? parts.join('\n') : 'None yet';
+  }
+
+  /**
+   * Generate lead qualification guidance for the AI
+   * Task 4.1, Subtask 2: Lead Qualification Questions (lines 936-943)
+   * 
+   * Analyzes missing information and guides AI to ask qualifying questions naturally
+   */
+  private generateQualificationGuidance(session: ConversationSession): string {
+    const info = session.context.extractedInfo;
+    const missingInfo: string[] = [];
+
+    // Identify missing critical information (as per plan lines 938-943)
+    if (!info.budget) {
+      missingInfo.push('budget range');
+    }
+    if (!info.location) {
+      missingInfo.push('preferred location');
+    }
+    if (!info.urgency) {
+      missingInfo.push('timeline to purchase');
+    }
+    if (!info.propertyType || !info.bedrooms) {
+      missingInfo.push('property type and size requirements');
+    }
+    if (!info.purpose) {
+      missingInfo.push('purpose (investment or personal residence)');
+    }
+    if (!info.paymentMethod) {
+      missingInfo.push('financing needs and payment preferences');
+    }
+
+    // If we have all information, no guidance needed
+    if (missingInfo.length === 0) {
+      return 'Lead Qualification Status: Complete - All key information collected. Focus on property recommendations.';
+    }
+
+    // Generate guidance for AI to ask questions naturally
+    const guidance = `Lead Qualification Guidance:
+You need to understand the customer better to provide the best recommendations. 
+The following information is still missing: ${missingInfo.join(', ')}.
+
+IMPORTANT: Ask these questions naturally during the conversation, not all at once.
+- Pick ONE or TWO most relevant missing details based on the current conversation flow
+- Ask in a friendly, conversational manner
+- Frame questions as helping to find the perfect property
+- Don't make it feel like an interrogation
+
+Example natural ways to ask:
+- Budget: "To help find the best options, what budget range are you considering?" / "ما الميزانية التقريبية المتاحة لك؟"
+- Location: "Which area or district do you prefer?" / "أي منطقة تفضل؟"
+- Timeline: "When are you planning to make a purchase?" / "متى تخطط للشراء؟"
+- Property Type: "Are you looking for an apartment, villa, or townhouse?" / "هل تبحث عن شقة أم فيلا؟"
+- Size: "How many bedrooms do you need?" / "كم عدد غرف النوم المطلوبة؟"
+- Purpose: "Is this for investment or for living?" / "هل هذا للاستثمار أم للسكن؟"
+- Financing: "Are you paying cash or would you like to explore payment plans?" / "هل الدفع كاش أم تفضل التقسيط؟"
+
+Priority: Focus on the most critical missing information first (budget and location are most important).`;
+
+    return guidance;
   }
 
   /**

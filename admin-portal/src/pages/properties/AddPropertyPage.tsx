@@ -1,9 +1,30 @@
-import { Link } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
+import toast from 'react-hot-toast';
+
 import Button from '@/components/ui/Button';
-import Card from '@/components/ui/Card';
+import PropertyForm from '@/components/PropertyForm';
+import { propertyService } from '@/services/property.service';
+import { PropertyFormData } from '@/types';
 
 const AddPropertyPage = () => {
+  const navigate = useNavigate();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (data: PropertyFormData) => {
+    setIsSubmitting(true);
+    try {
+      const property = await propertyService.createProperty(data);
+      toast.success('Property created successfully!');
+      navigate(`/properties/${property.id}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to create property');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -19,14 +40,8 @@ const AddPropertyPage = () => {
         </div>
       </div>
 
-      {/* Form Placeholder */}
-      <Card variant="bordered" className="p-8">
-        <div className="text-center py-12">
-          <p className="text-lg text-gray-600">
-            Property form will be implemented in the next subtask
-          </p>
-        </div>
-      </Card>
+      {/* Property Form */}
+      <PropertyForm onSubmit={handleSubmit} isLoading={isSubmitting} />
     </div>
   );
 };

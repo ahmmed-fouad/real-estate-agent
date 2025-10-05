@@ -105,6 +105,8 @@ export interface PropertyFormData {
   deliveryDate?: string;
   status: string;
   paymentPlans: Omit<PaymentPlan, 'id' | 'propertyId'>[];
+  images?: string[];
+  documents?: string[];
 }
 
 // Conversation Types

@@ -13,6 +13,9 @@ import { sessionManager } from '../session';
 import { ConversationState } from '../session/types';
 import { MessageQueueJob, MessageQueueResult } from './message-queue.service';
 import { llmService, promptBuilder, ragService, intentClassifier, entityExtractor, responsePostProcessor } from '../ai';
+import { leadScoringService } from '../lead';
+import { leadNotificationService } from '../notification';
+import { prisma } from '../../config/prisma-client';
 
 const logger = createServiceLogger('MessageProcessor');
 
@@ -306,6 +309,91 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
           messagesAdded: 2, // User message + AI response
           totalMessages: session.context.messageHistory.length,
         });
+
+        // ✅ Task 4.1 - Calculate and update lead score
+        try {
+          const leadScore = leadScoringService.calculateScore(session);
+          const scoreExplanation = leadScoringService.getScoreExplanation(leadScore);
+
+          // FIX #2: Get previous lead quality to detect changes
+          const existingConversation = await prisma.conversation.findFirst({
+            where: {
+              agentId: session.agentId,
+              customerPhone: session.customerId,
+              status: { not: 'closed' },
+            },
+            select: {
+              leadScore: true,
+              leadQuality: true,
+            },
+          });
+
+          const previousQuality = existingConversation?.leadQuality ?? null;
+          const qualityChanged = previousQuality !== leadScore.quality;
+
+          // FIX #2: Only route notification if quality changed (no spam)
+          let notificationMetadata = null;
+          if (qualityChanged) {
+            logger.info('Lead quality changed - routing notification', {
+              sessionId: session.id,
+              previousQuality,
+              newQuality: leadScore.quality,
+            });
+
+            // Route notification and get metadata to store
+            notificationMetadata = await leadNotificationService.routeLeadNotification(
+              session,
+              leadScore,
+              scoreExplanation,
+              previousQuality
+            );
+          } else {
+            logger.debug('Lead quality unchanged - skipping notification', {
+              sessionId: session.id,
+              quality: leadScore.quality,
+            });
+          }
+
+          // FIX #1 & #3: Single atomic database update with combined metadata
+          await prisma.conversation.updateMany({
+            where: {
+              agentId: session.agentId,
+              customerPhone: session.customerId,
+              status: { not: 'closed' },
+            },
+            data: {
+              leadScore: leadScore.total,
+              leadQuality: leadScore.quality,
+              metadata: {
+                // Score factors
+                leadScoreFactors: leadScore.factors,
+                leadScoreExplanation: scoreExplanation,
+                lastScoreUpdate: new Date().toISOString(),
+                // Quality tracking
+                previousQuality: previousQuality,
+                qualityChangedAt: qualityChanged ? new Date().toISOString() : undefined,
+                // Notification metadata (FIX #1: combined in single update)
+                ...(notificationMetadata && { lastNotification: notificationMetadata }),
+              },
+            },
+          });
+
+          logger.info('Lead score calculated and updated', {
+            sessionId: session.id,
+            customerId: session.customerId,
+            leadScore: leadScore.total,
+            leadQuality: leadScore.quality,
+            qualityChanged,
+            explanation: scoreExplanation,
+          });
+
+        } catch (scoringError) {
+          // Don't fail the message processing if scoring fails
+          logger.error('Failed to calculate/update lead score', {
+            sessionId: session.id,
+            error: scoringError instanceof Error ? scoringError.message : 'Unknown error',
+          });
+        }
 
         // ✅ Task 2.4 - Send enhanced response via WhatsApp
         // Send main text message
