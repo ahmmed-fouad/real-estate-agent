@@ -196,6 +196,7 @@ model ScheduledViewing {
   customerPhone   String   @map("customer_phone")
   customerName    String?  @map("customer_name")
   scheduledTime   DateTime @map("scheduled_time")
+  durationMinutes Int      @default(60) @map("duration_minutes")
   status          String   @default("scheduled")
   
   notes           String?  @db.Text

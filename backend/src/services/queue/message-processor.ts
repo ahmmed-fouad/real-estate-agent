@@ -12,10 +12,11 @@ import { whatsappService } from '../whatsapp/whatsapp.service';
 import { sessionManager } from '../session';
 import { ConversationState } from '../session/types';
 import { MessageQueueJob, MessageQueueResult } from './message-queue.service';
-import { llmService, promptBuilder, ragService, intentClassifier, entityExtractor, responsePostProcessor } from '../ai';
+import { llmService, promptBuilder, ragService, intentClassifier, entityExtractor, responsePostProcessor, Intent } from '../ai';
 import { leadScoringService } from '../lead';
 import { leadNotificationService } from '../notification';
 import { languageDetectionService } from '../language';
+import { schedulingIntegrationService } from '../schedule';
 import { prisma } from '../../config/prisma-client';
 
 const logger = createServiceLogger('MessageProcessor');
@@ -126,6 +127,96 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
       });
 
       try {
+        // ✅ Task 4.3 Fix #5 - Handle customer slot selection
+        if (session.context.awaitingSchedulingResponse && session.context.schedulingContext) {
+          logger.info('Customer is responding to scheduling flow', {
+            sessionId: session.id,
+            step: session.context.schedulingContext.step,
+            message: message.content,
+          });
+
+          // Validate and find matching slot
+          const validationResult = await schedulingIntegrationService.validateAndFindSlot(
+            session.agentId,
+            message.content,
+            session.context.schedulingContext.propertyId
+          );
+
+          if (validationResult.success && validationResult.slot) {
+            logger.info('Valid slot found, creating booking', {
+              sessionId: session.id,
+              slot: validationResult.slot,
+            });
+
+            // Create the booking
+            const bookingResult = await schedulingIntegrationService.createBookingFromConversation(
+              session,
+              session.context.schedulingContext.propertyId!,
+              validationResult.slot
+            );
+
+            if (bookingResult.success) {
+              // Send confirmation message
+              const confirmationMsg = await schedulingIntegrationService.generateBookingConfirmationMessage(
+                bookingResult.viewingId!,
+                session.context.languagePreference?.primary || 'mixed'
+              );
+
+              await whatsappService.sendTextMessage(message.from, confirmationMsg);
+
+              // Clear scheduling context
+              session.context.awaitingSchedulingResponse = false;
+              delete session.context.schedulingContext;
+
+              // Update session history
+              session.context.messageHistory.push(
+                { role: 'user', content: message.content, timestamp: new Date() },
+                { role: 'assistant', content: confirmationMsg, timestamp: new Date() }
+              );
+
+              await sessionManager.updateSession(session);
+
+              logger.info('Booking created and confirmed', {
+                sessionId: session.id,
+                viewingId: bookingResult.viewingId,
+              });
+
+              return {
+                processed: true,
+                responseGenerated: true,
+              };
+            } else {
+              // Booking failed, send error message
+              await whatsappService.sendTextMessage(message.from, bookingResult.error || 'حدث خطأ في الحجز\nBooking failed');
+              
+              // Clear context and let AI handle follow-up
+              session.context.awaitingSchedulingResponse = false;
+              delete session.context.schedulingContext;
+            }
+          } else {
+            // Slot validation failed, send clarification message
+            await whatsappService.sendTextMessage(message.from, validationResult.message);
+            
+            // Keep scheduling context active for retry
+            logger.info('Slot validation failed, awaiting retry', {
+              sessionId: session.id,
+            });
+
+            // Update history but stay in scheduling flow
+            session.context.messageHistory.push(
+              { role: 'user', content: message.content, timestamp: new Date() },
+              { role: 'assistant', content: validationResult.message, timestamp: new Date() }
+            );
+
+            await sessionManager.updateSession(session);
+
+            return {
+              processed: true,
+              responseGenerated: true,
+            };
+          }
+        }
+
         // ✅ Task 4.2, Subtask 1 - Detect customer language
         logger.debug('Detecting customer language', {
           messageId: message.messageId,
@@ -197,6 +288,94 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
           currentIntent: session.context.currentIntent,
           extractedInfo: session.context.extractedInfo,
         });
+
+        // ✅ Task 4.3 Fix #3 - Handle SCHEDULE_VIEWING intent specially
+        // As per plan lines 990-991: "AI suggests available slots", "Customer selects time"
+        if (intentAnalysis.intent === Intent.SCHEDULE_VIEWING) {
+          logger.info('SCHEDULE_VIEWING intent detected - showing available slots', {
+            sessionId: session.id,
+            messageId: message.messageId,
+          });
+
+          try {
+            const detectedLanguage = session.context.languagePreference?.primary || 'mixed';
+            
+            // ✅ Task 4.3 Fix #6: Check if customer has selected a specific property
+            const propertyId = session.context.extractedInfo?.propertyId || undefined;
+
+            // If no specific property selected, ask which one
+            if (!propertyId) {
+              const clarificationMsg = detectedLanguage === 'ar' 
+                ? 'بالتأكيد! لأي عقار تريد حجز معاينة؟'
+                : detectedLanguage === 'en'
+                ? 'Sure! Which property would you like to schedule a viewing for?'
+                : 'بالتأكيد! لأي عقار تريد حجز معاينة؟\nSure! Which property would you like to schedule a viewing for?';
+
+              await whatsappService.sendTextMessage(message.from, clarificationMsg);
+
+              // Update session history
+              session.context.messageHistory.push({
+                role: 'assistant',
+                content: clarificationMsg,
+                timestamp: new Date(),
+              });
+
+              await sessionManager.updateSession(session);
+
+              logger.info('Asked customer to specify property', {
+                sessionId: session.id,
+              });
+
+              return {
+                processed: true,
+                responseGenerated: true,
+              };
+            }
+
+            // Generate available slots message for specific property
+            const slotsMessage = await schedulingIntegrationService.generateAvailableSlotsMessage(
+              session.agentId,
+              propertyId,
+              detectedLanguage as 'ar' | 'en' | 'mixed'
+            );
+
+            // Send slots to customer
+            await whatsappService.sendTextMessage(message.from, slotsMessage);
+
+            // Mark session as awaiting slot selection
+            session.context.awaitingSchedulingResponse = true;
+            session.context.schedulingContext = {
+              propertyId,
+              step: 'awaiting_time_selection',
+            };
+
+            // Update session with assistant response
+            session.context.messageHistory.push({
+              role: 'assistant',
+              content: slotsMessage,
+              timestamp: new Date(),
+            });
+
+            // Persist session
+            await sessionManager.updateSession(session);
+
+            logger.info('Viewing slots sent to customer', {
+              sessionId: session.id,
+              messageId: message.messageId,
+            });
+
+            return {
+              processed: true,
+              responseGenerated: true,
+            };
+          } catch (error) {
+            logger.error('Failed to handle SCHEDULE_VIEWING intent', {
+              error: error instanceof Error ? error.message : 'Unknown error',
+              sessionId: session.id,
+            });
+            // Fall through to normal AI response as fallback
+          }
+        }
 
         // ✅ Task 2.3 - Extract search filters from entities for RAG (plan line 599)
         // Use extracted entities for filtering property search
@@ -429,12 +608,8 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
         }
 
         // ✅ Task 2.4 - Send enhanced response via WhatsApp
-        // Send main text message
-        await whatsappService.sendMessage({
-          to: message.from,
-          type: 'text',
-          content: enhancedResponse.text,
-        });
+        // Send main text message (Task 4.3 Fix #7: Use correct API)
+        await whatsappService.sendTextMessage(message.from, enhancedResponse.text);
 
         logger.info('Enhanced response sent successfully', {
           messageId: message.messageId,
@@ -506,13 +681,12 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
           });
         }
 
-        // Send fallback message to customer
+        // Send fallback message to customer (Task 4.3 Fix #7: Use correct API)
         try {
-          await whatsappService.sendMessage({
-            to: message.from,
-            type: 'text',
-            content: 'عذراً، حدث خطأ مؤقت. سيتواصل معك أحد ممثلينا قريباً.\n\nSorry, a temporary error occurred. One of our representatives will contact you soon.',
-          });
+          await whatsappService.sendTextMessage(
+            message.from,
+            'عذراً، حدث خطأ مؤقت. سيتواصل معك أحد ممثلينا قريباً.\n\nSorry, a temporary error occurred. One of our representatives will contact you soon.'
+          );
           logger.info('Fallback message sent', { messageId: message.messageId });
         } catch (fallbackError) {
           logger.error('Failed to send fallback message', {
@@ -553,15 +727,94 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
       // TODO: In Phase 2, search nearby properties based on location
     }
 
-    // Handle button/list responses
+    // ✅ Task 4.3 Fix #1 - Handle button/list responses
     if (message.buttonPayload) {
-      logger.info('Processing interactive response', {
+      logger.info('Processing interactive button response', {
         messageId: message.messageId,
         from: message.from,
         payload: message.buttonPayload,
       });
 
-      // TODO: In Phase 2, handle button click actions
+      // Handle scheduling-related buttons
+      if (message.buttonPayload.startsWith('schedule_') || message.buttonPayload.includes('viewing')) {
+        logger.info('Scheduling button clicked', {
+          sessionId: session.id,
+          payload: message.buttonPayload,
+        });
+
+        // Parse button payload (format: "schedule_viewing_{propertyId}" or "schedule_slot_{timestamp}")
+        if (message.buttonPayload.startsWith('schedule_viewing_')) {
+          const propertyId = message.buttonPayload.replace('schedule_viewing_', '');
+          
+          // Set scheduling context
+          session.context.awaitingSchedulingResponse = true;
+          session.context.schedulingContext = {
+            propertyId,
+            step: 'awaiting_time_selection',
+          };
+
+          // Show available slots
+          const detectedLanguage = session.context.languagePreference?.primary || 'mixed';
+          const slotsMessage = await schedulingIntegrationService.generateAvailableSlotsMessage(
+            session.agentId,
+            propertyId,
+            detectedLanguage as 'ar' | 'en' | 'mixed'
+          );
+
+          await whatsappService.sendTextMessage(message.from, slotsMessage);
+
+          // Update session
+          session.context.messageHistory.push({
+            role: 'assistant',
+            content: slotsMessage,
+            timestamp: new Date(),
+          });
+          await sessionManager.updateSession(session);
+
+          logger.info('Viewing slots sent after button click', {
+            sessionId: session.id,
+            propertyId,
+          });
+        } else if (message.buttonPayload.startsWith('schedule_slot_')) {
+          // Customer clicked a specific slot button
+          const timestamp = message.buttonPayload.replace('schedule_slot_', '');
+          const selectedSlot = new Date(parseInt(timestamp, 10));
+
+          if (session.context.schedulingContext?.propertyId) {
+            // Create booking directly
+            const bookingResult = await schedulingIntegrationService.createBookingFromConversation(
+              session,
+              session.context.schedulingContext.propertyId,
+              selectedSlot
+            );
+
+            if (bookingResult.success) {
+              const confirmationMsg = await schedulingIntegrationService.generateBookingConfirmationMessage(
+                bookingResult.viewingId!,
+                session.context.languagePreference?.primary || 'mixed'
+              );
+
+              await whatsappService.sendTextMessage(message.from, confirmationMsg);
+
+              // Clear scheduling context
+              session.context.awaitingSchedulingResponse = false;
+              delete session.context.schedulingContext;
+
+              logger.info('Booking created from button click', {
+                sessionId: session.id,
+                viewingId: bookingResult.viewingId,
+              });
+            }
+          }
+        }
+      }
+
+      // Handle other button types in the future (property_details, contact_agent, etc.)
+      // For now, log and continue
+      logger.debug('Button click processed', {
+        sessionId: session.id,
+        payload: message.buttonPayload,
+      });
     }
 
     // For non-text messages, persist session now

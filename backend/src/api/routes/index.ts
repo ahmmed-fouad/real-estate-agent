@@ -11,6 +11,7 @@ import agentRoutes from './agent.routes';
 import propertyRoutes from './property.routes';
 import conversationRoutes from './conversation.routes';
 import analyticsRoutes from './analytics.routes';
+import scheduleRoutes from './schedule.routes';
 
 const router = Router();
 
@@ -46,6 +47,9 @@ router.use('/conversations', conversationRoutes);
 
 // Analytics routes (Task 3.1, Subtask 6: lines 739-745)
 router.use('/analytics', analyticsRoutes);
+
+// Schedule routes (Task 4.3: lines 1006-1012)
+router.use('/schedule', scheduleRoutes);
 
 export default router;
 

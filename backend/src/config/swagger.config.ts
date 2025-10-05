@@ -142,6 +142,10 @@ const options: swaggerJsdoc.Options = {
         name: 'Analytics',
         description: 'Dashboard statistics and reporting',
       },
+      {
+        name: 'Schedule',
+        description: 'Viewing scheduling and calendar integration (Task 4.3)',
+      },
     ],
   },
   // Path to API route files with JSDoc comments

@@ -19,6 +19,7 @@ import { sessionManager, idleCheckService } from './services/session';
 import { whatsappRateLimiter } from './services/rate-limiter';
 import { redisManager } from './config/redis-manager';
 import { disconnectPrisma } from './config/prisma-client';
+import { reminderService } from './services/schedule';
 
 // Load environment variables
 config();
@@ -196,9 +197,10 @@ process.on('uncaughtException', (error: Error) => {
 
 // Graceful shutdown (FIXED: Issue #1 - Close all connections)
 process.on('SIGTERM', async () => {
-  logger.info('SIGTERM signal received: closing HTTP server, queue, idle checker, rate limiter, sessions, Prisma, and Redis');
+  logger.info('SIGTERM signal received: closing HTTP server, queue, idle checker, reminder service, rate limiter, sessions, Prisma, and Redis');
   await messageQueue.stopProcessing();
   await idleCheckService.stop();
+  await reminderService.close();
   await whatsappRateLimiter.close();
   await sessionManager.close();
   await disconnectPrisma(); // Disconnect Prisma client
@@ -207,9 +209,10 @@ process.on('SIGTERM', async () => {
 });
 
 process.on('SIGINT', async () => {
-  logger.info('SIGINT signal received: closing HTTP server, queue, idle checker, rate limiter, sessions, Prisma, and Redis');
+  logger.info('SIGINT signal received: closing HTTP server, queue, idle checker, reminder service, rate limiter, sessions, Prisma, and Redis');
   await messageQueue.stopProcessing();
   await idleCheckService.stop();
+  await reminderService.close();
   await whatsappRateLimiter.close();
   await sessionManager.close();
   await disconnectPrisma(); // Disconnect Prisma client

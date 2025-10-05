@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Bell, User, LogOut, Settings } from 'lucide-react';
 import { useAuthStore } from '@/store/auth-store';
 import { authService } from '@/services/auth.service';
-import { cn } from '@/lib/utils';
+// import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
 const Header = () => {

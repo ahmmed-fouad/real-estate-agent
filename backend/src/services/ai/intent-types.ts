@@ -38,6 +38,7 @@ export interface ExtractedEntities {
 
   // Property specifications
   propertyType?: string;  // apartment, villa, townhouse, etc.
+  propertyId?: string;    // Task 4.3 Fix #4: Specific property being discussed
   bedrooms?: number;
   bathrooms?: number;
   minArea?: number;       // Minimum area in square meters

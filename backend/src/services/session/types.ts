@@ -67,6 +67,12 @@ export interface ConversationSession {
     currentIntent?: Intent; // FIXED: Use Intent enum for type safety (plan line 301)
     currentTopic?: string;  // Additional context for what customer is discussing
     languagePreference?: LanguagePreference;  // Task 4.2: Detected language preference
+    awaitingSchedulingResponse?: boolean;  // Task 4.3 Fix #3: Awaiting slot selection
+    schedulingContext?: {  // Task 4.3 Fix #3: Scheduling state
+      propertyId?: string;
+      step: 'awaiting_time_selection' | 'awaiting_confirmation';
+      selectedTime?: Date;
+    };
   };
 }
 
