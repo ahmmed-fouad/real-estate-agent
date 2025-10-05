@@ -85,6 +85,8 @@ const PropertyForm = ({ initialData, onSubmit, isLoading = false }: PropertyForm
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>(initialData?.images || []);
   const [documentFiles, setDocumentFiles] = useState<File[]>([]);
+  const [isDraggingImages, setIsDraggingImages] = useState(false);
+  const [isDraggingDocs, setIsDraggingDocs] = useState(false);
 
   const {
     register,
@@ -128,8 +130,7 @@ const PropertyForm = ({ initialData, onSubmit, isLoading = false }: PropertyForm
     );
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
+  const processImageFiles = (files: File[]) => {
     if (files.length === 0) return;
 
     // Validate file types
@@ -160,13 +161,34 @@ const PropertyForm = ({ initialData, onSubmit, isLoading = false }: PropertyForm
     });
   };
 
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    processImageFiles(files);
+  };
+
+  const handleImageDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingImages(false);
+    const files = Array.from(e.dataTransfer.files);
+    processImageFiles(files);
+  };
+
+  const handleImageDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingImages(true);
+  };
+
+  const handleImageDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingImages(false);
+  };
+
   const removeImage = (index: number) => {
     setImageFiles((prev) => prev.filter((_, i) => i !== index));
     setImagePreviews((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleDocumentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
+  const processDocumentFiles = (files: File[]) => {
     if (files.length === 0) return;
 
     // Validate file types
@@ -186,6 +208,29 @@ const PropertyForm = ({ initialData, onSubmit, isLoading = false }: PropertyForm
     }
 
     setDocumentFiles((prev) => [...prev, ...files]);
+    toast.success(`${files.length} document(s) added`);
+  };
+
+  const handleDocumentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    processDocumentFiles(files);
+  };
+
+  const handleDocumentDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingDocs(false);
+    const files = Array.from(e.dataTransfer.files);
+    processDocumentFiles(files);
+  };
+
+  const handleDocumentDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingDocs(true);
+  };
+
+  const handleDocumentDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingDocs(false);
   };
 
   const removeDocument = (index: number) => {
@@ -495,22 +540,39 @@ const PropertyForm = ({ initialData, onSubmit, isLoading = false }: PropertyForm
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Images</h2>
         
         <div className="mb-4">
-          <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer hover:bg-gray-50">
-            <div className="flex flex-col items-center justify-center pt-5 pb-6">
-              <Upload className="h-8 w-8 text-gray-400 mb-2" />
-              <p className="text-sm text-gray-600">
-                <span className="font-medium">Click to upload</span> or drag and drop
-              </p>
-              <p className="text-xs text-gray-500">PNG, JPG, WebP up to 5MB</p>
-            </div>
-            <input
-              type="file"
-              className="hidden"
-              multiple
-              accept="image/jpeg,image/png,image/jpg,image/webp"
-              onChange={handleImageUpload}
-            />
-          </label>
+          <div
+            onDrop={handleImageDrop}
+            onDragOver={handleImageDragOver}
+            onDragLeave={handleImageDragLeave}
+            className={`relative flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg transition-colors ${
+              isDraggingImages
+                ? 'border-primary-500 bg-primary-50'
+                : 'border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            <label className="flex flex-col items-center justify-center w-full h-full cursor-pointer">
+              <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                <Upload className={`h-8 w-8 mb-2 ${isDraggingImages ? 'text-primary-600' : 'text-gray-400'}`} />
+                <p className={`text-sm ${isDraggingImages ? 'text-primary-700 font-medium' : 'text-gray-600'}`}>
+                  {isDraggingImages ? (
+                    'Drop images here...'
+                  ) : (
+                    <>
+                      <span className="font-medium">Click to upload</span> or drag and drop
+                    </>
+                  )}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">PNG, JPG, WebP up to 5MB</p>
+              </div>
+              <input
+                type="file"
+                className="hidden"
+                multiple
+                accept="image/jpeg,image/png,image/jpg,image/webp"
+                onChange={handleImageUpload}
+              />
+            </label>
+          </div>
         </div>
 
         {imagePreviews.length > 0 && (
@@ -540,22 +602,39 @@ const PropertyForm = ({ initialData, onSubmit, isLoading = false }: PropertyForm
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Documents</h2>
         
         <div className="mb-4">
-          <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer hover:bg-gray-50">
-            <div className="flex flex-col items-center justify-center pt-5 pb-6">
-              <Upload className="h-8 w-8 text-gray-400 mb-2" />
-              <p className="text-sm text-gray-600">
-                <span className="font-medium">Click to upload</span> or drag and drop
-              </p>
-              <p className="text-xs text-gray-500">PDF, DOC up to 10MB</p>
-            </div>
-            <input
-              type="file"
-              className="hidden"
-              multiple
-              accept="application/pdf,.doc,.docx"
-              onChange={handleDocumentUpload}
-            />
-          </label>
+          <div
+            onDrop={handleDocumentDrop}
+            onDragOver={handleDocumentDragOver}
+            onDragLeave={handleDocumentDragLeave}
+            className={`relative flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg transition-colors ${
+              isDraggingDocs
+                ? 'border-primary-500 bg-primary-50'
+                : 'border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            <label className="flex flex-col items-center justify-center w-full h-full cursor-pointer">
+              <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                <Upload className={`h-8 w-8 mb-2 ${isDraggingDocs ? 'text-primary-600' : 'text-gray-400'}`} />
+                <p className={`text-sm ${isDraggingDocs ? 'text-primary-700 font-medium' : 'text-gray-600'}`}>
+                  {isDraggingDocs ? (
+                    'Drop documents here...'
+                  ) : (
+                    <>
+                      <span className="font-medium">Click to upload</span> or drag and drop
+                    </>
+                  )}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">PDF, DOC up to 10MB</p>
+              </div>
+              <input
+                type="file"
+                className="hidden"
+                multiple
+                accept="application/pdf,.doc,.docx"
+                onChange={handleDocumentUpload}
+              />
+            </label>
+          </div>
         </div>
 
         {documentFiles.length > 0 && (

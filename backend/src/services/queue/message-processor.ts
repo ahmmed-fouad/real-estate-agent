@@ -15,6 +15,7 @@ import { MessageQueueJob, MessageQueueResult } from './message-queue.service';
 import { llmService, promptBuilder, ragService, intentClassifier, entityExtractor, responsePostProcessor } from '../ai';
 import { leadScoringService } from '../lead';
 import { leadNotificationService } from '../notification';
+import { languageDetectionService } from '../language';
 import { prisma } from '../../config/prisma-client';
 
 const logger = createServiceLogger('MessageProcessor');
@@ -125,6 +126,34 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
       });
 
       try {
+        // ✅ Task 4.2, Subtask 1 - Detect customer language
+        logger.debug('Detecting customer language', {
+          messageId: message.messageId,
+          sessionId: session.id,
+        });
+
+        const languageDetection = languageDetectionService.detectLanguage(message.content);
+        
+        // Update session with detected language preference
+        if (!session.context.languagePreference || 
+            languageDetection.confidence > (session.context.languagePreference.confidence || 0)) {
+          session.context.languagePreference = {
+            primary: languageDetection.language,
+            confidence: languageDetection.confidence,
+            lastDetected: new Date(),
+            messagesSampled: (session.context.languagePreference?.messagesSampled || 0) + 1,
+          };
+
+          logger.info('Language preference updated', {
+            sessionId: session.id,
+            language: languageDetection.language,
+            confidence: languageDetection.confidence,
+            hasArabic: languageDetection.hasArabic,
+            hasEnglish: languageDetection.hasEnglish,
+            isArabizi: languageDetection.isArabizi,
+          });
+        }
+
         // ✅ Task 2.3 - Classify intent and extract entities (Phase 2) IMPLEMENTED
         logger.info('Classifying intent and extracting entities', {
           messageId: message.messageId,
@@ -251,6 +280,9 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
           propertiesCount: relevantProperties.length,
         });
 
+        // FIX: Pass detected language to post-processor for template adaptation
+        const detectedLanguage = session.context.languagePreference?.primary || 'mixed';
+        
         const enhancedResponse = await responsePostProcessor.postProcess(
           llmResponse.content,
           {
@@ -259,6 +291,7 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
             customerName: undefined, // TODO: Extract from conversation if available
             agentName: session.agentId,
             extractedInfo: session.context.extractedInfo,
+            detectedLanguage: detectedLanguage,  // FIX: Pass detected language
           }
         );
 

@@ -43,6 +43,7 @@ export interface Message {
 // FIXED: Now uses ExtractedEntities from intent-types to eliminate duplication
 // This ensures consistency between intent classification and session storage
 import { ExtractedEntities, Intent } from '../ai/intent-types';
+import { LanguagePreference } from '../language/language-types';
 
 // ExtractedInfo is now just an alias for ExtractedEntities
 // This eliminates duplication while maintaining backwards compatibility
@@ -52,6 +53,7 @@ export type ExtractedInfo = ExtractedEntities;
 // FIXED: Added missing fields from plan line 300-301:
 // - Conversation start time
 // - Current intent/topic
+// Task 4.2: Added language preference for multi-language support
 export interface ConversationSession {
   id: string;
   customerId: string;
@@ -64,6 +66,7 @@ export interface ConversationSession {
     lastActivity: Date;
     currentIntent?: Intent; // FIXED: Use Intent enum for type safety (plan line 301)
     currentTopic?: string;  // Additional context for what customer is discussing
+    languagePreference?: LanguagePreference;  // Task 4.2: Detected language preference
   };
 }
 

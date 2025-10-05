@@ -41,27 +41,43 @@ const ConversationDetailsPage = () => {
   const [isExporting, setIsExporting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Initial load
   useEffect(() => {
     if (id) {
       loadConversation(id);
     }
   }, [id]);
 
+  // Real-time updates - Poll every 3 seconds when conversation is active
   useEffect(() => {
-    // Auto-scroll to bottom when messages change
+    if (!id || conversation?.status === 'closed') return;
+
+    const interval = setInterval(() => {
+      loadConversation(id, true); // Silent reload (no loading state)
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [id, conversation?.status]);
+
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [conversation?.messages]);
 
-  const loadConversation = async (conversationId: string) => {
+  const loadConversation = async (conversationId: string, silent = false) => {
     try {
       const data = await conversationService.getConversation(conversationId);
       setConversation(data);
       setIsTakenOver(data.status === 'waiting_agent');
     } catch (error) {
-      toast.error('Failed to load conversation');
-      console.error('Failed to load conversation:', error);
+      if (!silent) {
+        toast.error('Failed to load conversation');
+        console.error('Failed to load conversation:', error);
+      }
     } finally {
-      setIsLoading(false);
+      if (!silent) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -202,18 +218,30 @@ const ConversationDetailsPage = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Messages - 2/3 width */}
         <div className="lg:col-span-2 space-y-4">
-          {/* Takeover Status */}
-          {isTakenOver && (
-            <Card variant="bordered" className="p-4 bg-blue-50 border-blue-200">
-              <div className="flex items-center space-x-2 text-blue-800">
-                <UserCheck className="h-5 w-5" />
+      {/* Takeover Status */}
+      {isTakenOver && (
+        <Card variant="bordered" className="p-4 bg-blue-50 border-blue-200">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2 text-blue-800">
+              <UserCheck className="h-5 w-5" />
+              <div>
                 <p className="font-medium">You've taken over this conversation</p>
+                <p className="text-sm text-blue-600 mt-1">
+                  You can now send messages directly to the customer. The AI is paused.
+                </p>
               </div>
-              <p className="text-sm text-blue-600 mt-1">
-                You can now send messages directly to the customer. The AI is paused.
-              </p>
-            </Card>
-          )}
+            </div>
+            <div className="flex items-center space-x-2 text-blue-600">
+              <div className="flex space-x-1">
+                <span className="w-2 h-2 bg-blue-600 rounded-full animate-pulse"></span>
+                <span className="w-2 h-2 bg-blue-600 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></span>
+                <span className="w-2 h-2 bg-blue-600 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></span>
+              </div>
+              <span className="text-sm font-medium">Live</span>
+            </div>
+          </div>
+        </Card>
+      )}
 
           {/* Messages */}
           <Card variant="bordered" className="p-6">

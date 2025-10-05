@@ -14,6 +14,7 @@ import OpenAI from 'openai';
 import { openaiConfig } from '../../config/openai.config';
 import { getOpenAIClient } from '../../config/openai-client';
 import { createServiceLogger } from '../../utils/logger';
+import { languageDetectionService } from '../language';
 import {
   ILLMService,
   LLMMessage,
@@ -202,11 +203,12 @@ export class LLMService implements ILLMService {
    * Simple estimation: ~4 characters per token for English
    * ~2 characters per token for Arabic (due to Unicode)
    * 
+   * FIX: Now reuses languageDetectionService to avoid regex duplication
    * Note: For production, consider using tiktoken library for accurate counts
    */
   estimateTokens(text: string): number {
-    // Check if text contains Arabic characters
-    const hasArabic = /[\u0600-\u06FF]/.test(text);
+    // FIX: Reuse languageDetectionService.hasArabicChars() instead of duplicate regex
+    const hasArabic = languageDetectionService.hasArabicChars(text);
 
     // Simple estimation
     const avgCharsPerToken = hasArabic ? 2 : 4;

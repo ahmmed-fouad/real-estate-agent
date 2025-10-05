@@ -88,6 +88,7 @@ Safety & Compliance:
    * Convenience method to extract data from session
    * 
    * Task 4.1, Subtask 2: Now includes lead qualification guidance
+   * Task 4.2, Subtask 2: Now uses detected language preference
    */
   buildSystemPromptFromSession(
     session: ConversationSession,
@@ -111,12 +112,27 @@ Safety & Compliance:
       ? `${additionalContext}\n\n${qualificationGuidance}`
       : qualificationGuidance;
 
+    // Task 4.2, Subtask 2: Use detected language preference
+    // Convert detected language to prompt language format
+    const detectedLanguage = session.context.languagePreference?.primary || 'mixed';
+    const promptLanguage: 'ar' | 'en' | 'auto' = 
+      detectedLanguage === 'ar' ? 'ar' :
+      detectedLanguage === 'en' ? 'en' :
+      'auto'; // For mixed or no preference
+
+    logger.debug('Building prompt with detected language', {
+      sessionId: session.id,
+      detectedLanguage,
+      promptLanguage,
+      confidence: session.context.languagePreference?.confidence,
+    });
+
     return this.buildSystemPrompt({
       agentName: session.agentId,
       context: contextWithGuidance,
       conversationHistory,
       extractedInfo,
-      language: 'auto', // Auto-detect based on customer messages
+      language: promptLanguage,
     });
   }
 

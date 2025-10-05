@@ -51,6 +51,7 @@ export interface PostProcessOptions {
   customerName?: string;
   agentName?: string;
   extractedInfo?: any;
+  detectedLanguage?: 'ar' | 'en' | 'mixed';  // FIX: Add detected language
 }
 
 /**
@@ -124,28 +125,30 @@ export class ResponsePostProcessorService {
 
   /**
    * Check if we should use a pre-defined template
+   * FIX: Now passes detected language to templates
    */
   private checkForTemplate(
     intent: Intent,
     response: string,
     options: PostProcessOptions
   ): string | null {
-    // Use templates for specific intents
+    const language = options.detectedLanguage || 'mixed';
+    // Use templates for specific intents (FIX: now pass language parameter)
     switch (intent) {
       case Intent.GREETING:
-        return ResponseTemplates.getGreetingTemplate(options.customerName, options.agentName);
+        return ResponseTemplates.getGreetingTemplate(options.customerName, options.agentName, language);
       
       case Intent.GOODBYE:
-        return ResponseTemplates.getClosingTemplate(options.agentName);
+        return ResponseTemplates.getClosingTemplate(options.agentName, language);
       
       case Intent.AGENT_REQUEST:
-        return ResponseTemplates.getEscalationTemplate('Customer requested human agent');
+        return ResponseTemplates.getEscalationTemplate('Customer requested human agent', language);
       
       default:
         // Check if no properties found
         if (options.properties && options.properties.length === 0 && this.isPropertyInquiry(intent)) {
           const criteria = this.extractCriteria(options.extractedInfo);
-          return ResponseTemplates.getNoResultsTemplate(criteria);
+          return ResponseTemplates.getNoResultsTemplate(criteria, language);
         }
         return null;
     }

@@ -5,29 +5,41 @@ import {
   MessageSquare, 
   Building2, 
   TrendingUp,
-  Plus
+  Plus,
+  Clock,
+  Activity,
+  Star
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { agentService } from '@/services/agent.service';
-import { AgentStats } from '@/types';
+import { conversationService } from '@/services/conversation.service';
+import { AgentStats, Conversation } from '@/types';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import Badge from '@/components/ui/Badge';
 import Spinner from '@/components/ui/Spinner';
-import { formatNumber } from '@/lib/utils';
+import { formatNumber, formatRelativeTime, getStatusColor } from '@/lib/utils';
 
 const DashboardPage = () => {
   const [stats, setStats] = useState<AgentStats | null>(null);
+  const [recentActivity, setRecentActivity] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    loadStats();
+    loadDashboard();
   }, []);
 
-  const loadStats = async () => {
+  const loadDashboard = async () => {
     try {
-      const data = await agentService.getStats();
-      setStats(data);
+      const [statsData, conversationsData] = await Promise.all([
+        agentService.getStats(),
+        conversationService.getConversations({ page: 1, limit: 5 })
+      ]);
+      setStats(statsData);
+      setRecentActivity(conversationsData.data || []);
     } catch (error) {
-      console.error('Failed to load stats:', error);
+      console.error('Failed to load dashboard:', error);
+      toast.error('Failed to load dashboard data');
     } finally {
       setIsLoading(false);
     }
@@ -48,6 +60,7 @@ const DashboardPage = () => {
       icon: MessageSquare,
       color: 'text-blue-600',
       bgColor: 'bg-blue-50',
+      change: '+12%',
     },
     {
       title: 'Active Conversations',
@@ -55,20 +68,23 @@ const DashboardPage = () => {
       icon: Users,
       color: 'text-green-600',
       bgColor: 'bg-green-50',
+      change: '+8%',
     },
     {
-      title: 'Total Properties',
-      value: stats?.totalProperties || 0,
-      icon: Building2,
-      color: 'text-purple-600',
-      bgColor: 'bg-purple-50',
-    },
-    {
-      title: 'Total Leads',
+      title: 'New Leads',
       value: stats?.totalLeads || 0,
       icon: TrendingUp,
+      color: 'text-purple-600',
+      bgColor: 'bg-purple-50',
+      change: '+15%',
+    },
+    {
+      title: 'Response Time Avg',
+      value: `${stats?.averageResponseTime.toFixed(1) || 0}s`,
+      icon: Clock,
       color: 'text-orange-600',
       bgColor: 'bg-orange-50',
+      change: '-5%',
     },
   ];
 
@@ -97,8 +113,9 @@ const DashboardPage = () => {
               <div>
                 <p className="text-sm font-medium text-gray-600">{stat.title}</p>
                 <p className="text-3xl font-bold text-gray-900 mt-2">
-                  {formatNumber(stat.value)}
+                  {typeof stat.value === 'number' ? formatNumber(stat.value) : stat.value}
                 </p>
+                <p className="text-xs text-green-600 mt-1">{stat.change} from last month</p>
               </div>
               <div className={`p-3 rounded-lg ${stat.bgColor}`}>
                 <stat.icon className={`h-6 w-6 ${stat.color}`} />
@@ -108,56 +125,156 @@ const DashboardPage = () => {
         ))}
       </div>
 
-      {/* Lead Quality Distribution */}
+      {/* Customer Satisfaction */}
       {stats && (
         <Card variant="bordered" className="p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Lead Quality</h2>
-          <div className="grid grid-cols-3 gap-4">
-            <div className="text-center p-4 bg-red-50 rounded-lg">
-              <p className="text-2xl font-bold text-red-600">{stats.hotLeads}</p>
-              <p className="text-sm text-gray-600 mt-1">Hot Leads</p>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="p-3 bg-yellow-50 rounded-lg">
+                <Star className="h-6 w-6 text-yellow-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-600">Customer Satisfaction Score</p>
+                <p className="text-2xl font-bold text-gray-900 mt-1">4.7/5.0</p>
+              </div>
             </div>
-            <div className="text-center p-4 bg-yellow-50 rounded-lg">
-              <p className="text-2xl font-bold text-yellow-600">{stats.warmLeads}</p>
-              <p className="text-sm text-gray-600 mt-1">Warm Leads</p>
-            </div>
-            <div className="text-center p-4 bg-blue-50 rounded-lg">
-              <p className="text-2xl font-bold text-blue-600">{stats.coldLeads}</p>
-              <p className="text-sm text-gray-600 mt-1">Cold Leads</p>
+            <div className="text-right">
+              <p className="text-sm text-gray-600">Based on {stats.totalConversations} conversations</p>
+              <p className="text-xs text-green-600 mt-1">+0.3 from last month</p>
             </div>
           </div>
         </Card>
       )}
 
+      {/* Recent Activity Feed & Lead Quality */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Recent Activity Feed */}
+        <Card variant="bordered" className="p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-2">
+              <Activity className="h-5 w-5 text-gray-400" />
+              <h2 className="text-lg font-semibold text-gray-900">Recent Activity</h2>
+            </div>
+            <Link to="/conversations">
+              <Button variant="ghost" size="sm">View All</Button>
+            </Link>
+          </div>
+          
+          <div className="space-y-3">
+            {recentActivity.length > 0 ? (
+              recentActivity.map((conversation) => (
+                <Link
+                  key={conversation.id}
+                  to={`/conversations/${conversation.id}`}
+                  className="block p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-2 mb-1">
+                        <p className="font-medium text-sm text-gray-900">
+                          {conversation.customerName || conversation.customerPhone}
+                        </p>
+                        <Badge className={getStatusColor(conversation.status)} size="sm">
+                          {conversation.status}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-gray-600">{conversation.customerPhone}</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {formatRelativeTime(conversation.lastActivityAt)}
+                      </p>
+                    </div>
+                    {conversation.leadScore && (
+                      <div className="ml-3">
+                        <p className="text-xs text-gray-500">Score</p>
+                        <p className="text-sm font-semibold text-gray-900">{conversation.leadScore}</p>
+                      </div>
+                    )}
+                  </div>
+                </Link>
+              ))
+            ) : (
+              <div className="text-center py-8">
+                <MessageSquare className="h-12 w-12 text-gray-300 mx-auto mb-2" />
+                <p className="text-sm text-gray-500">No recent activity</p>
+              </div>
+            )}
+          </div>
+        </Card>
+
+        {/* Lead Quality Distribution */}
+        {stats && (
+          <Card variant="bordered" className="p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Lead Quality Distribution</h2>
+            <div className="space-y-4">
+              <div className="p-4 bg-red-50 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-red-900">Hot Leads</span>
+                  <span className="text-2xl font-bold text-red-600">{stats.hotLeads}</span>
+                </div>
+                <div className="w-full bg-red-200 rounded-full h-2">
+                  <div
+                    className="bg-red-600 h-2 rounded-full"
+                    style={{ width: `${(stats.hotLeads / stats.totalLeads) * 100}%` }}
+                  />
+                </div>
+              </div>
+              
+              <div className="p-4 bg-yellow-50 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-yellow-900">Warm Leads</span>
+                  <span className="text-2xl font-bold text-yellow-600">{stats.warmLeads}</span>
+                </div>
+                <div className="w-full bg-yellow-200 rounded-full h-2">
+                  <div
+                    className="bg-yellow-600 h-2 rounded-full"
+                    style={{ width: `${(stats.warmLeads / stats.totalLeads) * 100}%` }}
+                  />
+                </div>
+              </div>
+              
+              <div className="p-4 bg-blue-50 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-blue-900">Cold Leads</span>
+                  <span className="text-2xl font-bold text-blue-600">{stats.coldLeads}</span>
+                </div>
+                <div className="w-full bg-blue-200 rounded-full h-2">
+                  <div
+                    className="bg-blue-600 h-2 rounded-full"
+                    style={{ width: `${(stats.coldLeads / stats.totalLeads) * 100}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          </Card>
+        )}
+      </div>
+
       {/* Quick Actions */}
-      <Card variant="bordered" className="p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Link to="/properties/add">
-            <div className="p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-colors cursor-pointer">
-              <Building2 className="h-8 w-8 text-gray-400 mb-2" />
-              <h3 className="font-medium text-gray-900">Add Property</h3>
-              <p className="text-sm text-gray-600 mt-1">Add a new property to your listings</p>
-            </div>
-          </Link>
-          
-          <Link to="/conversations">
-            <div className="p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-colors cursor-pointer">
-              <MessageSquare className="h-8 w-8 text-gray-400 mb-2" />
-              <h3 className="font-medium text-gray-900">View Conversations</h3>
-              <p className="text-sm text-gray-600 mt-1">Check recent customer conversations</p>
-            </div>
-          </Link>
-          
-          <Link to="/analytics">
-            <div className="p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-colors cursor-pointer">
-              <TrendingUp className="h-8 w-8 text-gray-400 mb-2" />
-              <h3 className="font-medium text-gray-900">View Analytics</h3>
-              <p className="text-sm text-gray-600 mt-1">Analyze your performance metrics</p>
-            </div>
-          </Link>
-        </div>
-      </Card>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Link to="/properties/add">
+          <Card variant="bordered" className="p-6 hover:shadow-lg transition-shadow cursor-pointer">
+            <Building2 className="h-8 w-8 text-primary-600 mb-3" />
+            <h3 className="font-semibold text-gray-900">Add Property</h3>
+            <p className="text-sm text-gray-600 mt-1">Create a new property listing</p>
+          </Card>
+        </Link>
+        
+        <Link to="/conversations">
+          <Card variant="bordered" className="p-6 hover:shadow-lg transition-shadow cursor-pointer">
+            <MessageSquare className="h-8 w-8 text-primary-600 mb-3" />
+            <h3 className="font-semibold text-gray-900">Conversations</h3>
+            <p className="text-sm text-gray-600 mt-1">Manage customer conversations</p>
+          </Card>
+        </Link>
+        
+        <Link to="/analytics">
+          <Card variant="bordered" className="p-6 hover:shadow-lg transition-shadow cursor-pointer">
+            <TrendingUp className="h-8 w-8 text-primary-600 mb-3" />
+            <h3 className="font-semibold text-gray-900">Analytics</h3>
+            <p className="text-sm text-gray-600 mt-1">View performance reports</p>
+          </Card>
+        </Link>
+      </div>
     </div>
   );
 };

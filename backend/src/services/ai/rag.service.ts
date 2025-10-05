@@ -250,6 +250,11 @@ export class RAGService implements IRAGService {
           prop.pricing.currency
         );
 
+        // FIX: Use arabicFormatterService for bilingual date formatting
+        const formattedDeliveryDate = prop.deliveryDate
+          ? arabicFormatterService.formatDate(new Date(prop.deliveryDate), 'mixed', 'long')
+          : 'Available now';
+
         return `
 Property ${index + 1}: ${prop.projectName}
 - Developer: ${prop.developerName || 'N/A'}
@@ -259,7 +264,7 @@ Property ${index + 1}: ${prop.projectName}
 - Specifications: ${prop.specifications.area} sqm, ${prop.specifications.bedrooms} bedrooms, ${prop.specifications.bathrooms} bathrooms
 - Amenities: ${prop.amenities.join(', ') || 'N/A'}
 - Payment Plans: ${paymentPlansText || 'Cash only'}
-- Delivery: ${prop.deliveryDate ? new Date(prop.deliveryDate).toLocaleDateString() : 'Available now'}
+- Delivery: ${formattedDeliveryDate}
 - Description: ${prop.description || 'No description available'}
 - Status: ${prop.status}`.trim();
       });
