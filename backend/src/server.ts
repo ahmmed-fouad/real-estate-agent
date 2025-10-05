@@ -20,6 +20,7 @@ import { whatsappRateLimiter } from './services/rate-limiter';
 import { redisManager } from './config/redis-manager';
 import { disconnectPrisma } from './config/prisma-client';
 import { reminderService } from './services/schedule';
+import { scheduledReportsService } from './services/analytics';
 
 // Load environment variables
 config();
@@ -141,6 +142,18 @@ const startServer = async () => {
     await idleCheckService.start();
     logger.info('Idle session checker started');
 
+    // Start scheduled reports service (Task 4.4: Automated reports - plan line 1062)
+    logger.info('Starting scheduled reports service...');
+    try {
+      await scheduledReportsService.initialize();
+      logger.info('Scheduled reports service started');
+    } catch (error) {
+      logger.warn('Failed to initialize scheduled reports service', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      logger.warn('Scheduled reports will not be available');
+    }
+
     // Start listening
     app.listen(PORT, () => {
       logger.info('Server started successfully', {
@@ -195,12 +208,13 @@ process.on('uncaughtException', (error: Error) => {
   process.exit(1);
 });
 
-// Graceful shutdown (FIXED: Issue #1 - Close all connections)
+// Graceful shutdown (FIXED: Issue #1 & #2 - Close all connections including scheduled reports)
 process.on('SIGTERM', async () => {
-  logger.info('SIGTERM signal received: closing HTTP server, queue, idle checker, reminder service, rate limiter, sessions, Prisma, and Redis');
+  logger.info('SIGTERM signal received: closing HTTP server, queue, idle checker, reminder service, scheduled reports, rate limiter, sessions, Prisma, and Redis');
   await messageQueue.stopProcessing();
   await idleCheckService.stop();
   await reminderService.close();
+  await scheduledReportsService.close();
   await whatsappRateLimiter.close();
   await sessionManager.close();
   await disconnectPrisma(); // Disconnect Prisma client
@@ -209,10 +223,11 @@ process.on('SIGTERM', async () => {
 });
 
 process.on('SIGINT', async () => {
-  logger.info('SIGINT signal received: closing HTTP server, queue, idle checker, reminder service, rate limiter, sessions, Prisma, and Redis');
+  logger.info('SIGINT signal received: closing HTTP server, queue, idle checker, reminder service, scheduled reports, rate limiter, sessions, Prisma, and Redis');
   await messageQueue.stopProcessing();
   await idleCheckService.stop();
   await reminderService.close();
+  await scheduledReportsService.close();
   await whatsappRateLimiter.close();
   await sessionManager.close();
   await disconnectPrisma(); // Disconnect Prisma client

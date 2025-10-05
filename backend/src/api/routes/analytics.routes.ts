@@ -284,5 +284,60 @@ router.get(
   analyticsController.getInquiryTopics
 );
 
+/**
+ * Task 4.4, Subtask 1: Detailed metrics endpoint
+ * GET /api/analytics/detailed
+ */
+router.get(
+  '/detailed',
+  validate(AnalyticsOverviewSchema),
+  analyticsController.getDetailedAnalytics
+);
+
+/**
+ * Task 4.4, Subtask 2: Report generation endpoints
+ * GET /api/analytics/report
+ * GET /api/analytics/report/email-preview
+ */
+router.get('/report', analyticsController.generateReport);
+router.get('/report/email-preview', analyticsController.getEmailPreview);
+
+/**
+ * Task 4.4, Subtask 3: Visualization endpoints
+ * Dashboard visualization data for charts
+ */
+router.get(
+  '/visualizations/conversation-trends',
+  analyticsController.getConversationTrendsChart
+);
+router.get(
+  '/visualizations/lead-quality-trends',
+  analyticsController.getLeadQualityTrendsChart
+);
+router.get(
+  '/visualizations/property-type-comparison',
+  analyticsController.getPropertyTypeComparisonChart
+);
+router.get(
+  '/visualizations/location-comparison',
+  analyticsController.getLocationComparisonChart
+);
+router.get(
+  '/visualizations/lead-quality-distribution',
+  analyticsController.getLeadQualityDistributionChart
+);
+router.get(
+  '/visualizations/conversation-status',
+  analyticsController.getConversationStatusChart
+);
+router.get(
+  '/visualizations/lead-journey-funnel',
+  analyticsController.getLeadJourneyFunnel
+);
+router.get(
+  '/visualizations/peak-hours-heatmap',
+  analyticsController.getPeakHoursHeatmap
+);
+
 export default router;
 

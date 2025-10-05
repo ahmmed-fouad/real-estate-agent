@@ -23,6 +23,7 @@ import {
   PropertyAnalyticsQuery,
   InquiryTopicsQuery,
 } from '../validators/analytics.validators';
+import { analyticsService, reportGeneratorService, visualizationService } from '../../services/analytics';
 
 const logger = createServiceLogger('AnalyticsController');
 
@@ -636,4 +637,644 @@ function groupConversationsByPeriod(
 
   return grouped;
 }
+
+/**
+ * Get detailed analytics metrics
+ * GET /api/analytics/detailed
+ * Task 4.4, Subtask 1: Comprehensive metrics (Plan lines 1025-1044)
+ * 
+ * @swagger
+ * /api/analytics/detailed:
+ *   get:
+ *     summary: Get detailed analytics metrics
+ *     description: Returns comprehensive metrics including conversation, lead, property, and customer analytics
+ *     tags: [Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Start date for analytics period (ISO 8601)
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: End date for analytics period (ISO 8601)
+ *     responses:
+ *       200:
+ *         description: Detailed analytics retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     conversationMetrics:
+ *                       type: object
+ *                       properties:
+ *                         totalConversations:
+ *                           type: number
+ *                         averageResponseTime:
+ *                           type: number
+ *                           description: Average response time in seconds
+ *                         conversationLength:
+ *                           type: number
+ *                           description: Average messages per conversation
+ *                         resolutionRate:
+ *                           type: number
+ *                           description: Resolution rate percentage
+ *                         escalationRate:
+ *                           type: number
+ *                           description: Escalation rate percentage
+ *                     leadMetrics:
+ *                       type: object
+ *                     propertyMetrics:
+ *                       type: object
+ *                     customerMetrics:
+ *                       type: object
+ *       500:
+ *         description: Server error
+ */
+export const getDetailedAnalytics = async (
+  req: AuthenticatedRequest<{}, {}, {}, AnalyticsOverviewQuery>,
+  res: Response
+): Promise<void> => {
+  try {
+    const agentId = req.user.id;
+    const { startDate, endDate } = req.query;
+
+    logger.info('Detailed analytics request', { agentId, startDate, endDate });
+
+    // Parse date range
+    const dateRange = {
+      startDate: startDate ? new Date(startDate) : undefined,
+      endDate: endDate ? new Date(endDate) : undefined,
+    };
+
+    // Get comprehensive analytics using analytics service
+    const analytics = await analyticsService.getComprehensiveAnalytics(agentId, dateRange);
+
+    logger.info('Detailed analytics retrieved', { agentId });
+
+    res.status(200).json({
+      success: true,
+      data: analytics,
+    });
+  } catch (error) {
+    return ErrorResponse.send(
+      res,
+      error,
+      'Failed to retrieve detailed analytics',
+      500,
+      { agentId: req.user.id }
+    );
+  }
+};
+
+/**
+ * Generate report
+ * GET /api/analytics/report
+ * Task 4.4, Subtask 2: Report Generation (Plan lines 1046-1051)
+ * 
+ * @swagger
+ * /api/analytics/report:
+ *   get:
+ *     summary: Generate analytics report
+ *     description: Generates a comprehensive analytics report for specified period
+ *     tags: [Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: period
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [daily, weekly, monthly, custom]
+ *         description: Report period type
+ *       - in: query
+ *         name: format
+ *         schema:
+ *           type: string
+ *           enum: [json, excel, pdf]
+ *           default: json
+ *         description: Report format
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Start date (required for custom period)
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: End date (required for custom period)
+ *     responses:
+ *       200:
+ *         description: Report generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *           application/pdf:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       400:
+ *         description: Invalid request parameters
+ *       500:
+ *         description: Server error
+ */
+export const generateReport = async (
+  req: AuthenticatedRequest<{}, {}, {}, any>,
+  res: Response
+): Promise<void> => {
+  try {
+    const agentId = req.user.id;
+    const { period = 'weekly', format = 'json', startDate, endDate } = req.query;
+
+    logger.info('Report generation request', { agentId, period, format });
+
+    // Validate period
+    if (!['daily', 'weekly', 'monthly', 'custom'].includes(period)) {
+      return ErrorResponse.send(res, new Error('Invalid period'), 'Invalid period type', 400, { agentId });
+    }
+
+    // Validate custom period dates
+    if (period === 'custom' && (!startDate || !endDate)) {
+      return ErrorResponse.send(
+        res,
+        new Error('Missing dates'),
+        'Start date and end date required for custom period',
+        400,
+        { agentId }
+      );
+    }
+
+    // Generate report
+    const reportData = await reportGeneratorService.generateReport({
+      agentId,
+      period: period as any,
+      format: format as any,
+      startDate: startDate ? new Date(startDate) : undefined,
+      endDate: endDate ? new Date(endDate) : undefined,
+    });
+
+    // Return based on format
+    // Task 4.4, Moderate Issue #3: Complete format handling
+    if (format === 'excel') {
+      const excelBuffer = await reportGeneratorService.exportToExcel(reportData);
+      
+      const filename = `analytics-report-${period}-${new Date().toISOString().split('T')[0]}.xlsx`;
+      
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Length', excelBuffer.length);
+      
+      res.send(excelBuffer);
+      
+      logger.info('Excel report generated', { agentId, filename });
+    } else if (format === 'pdf') {
+      // PDF format
+      const pdfBuffer = await reportGeneratorService.exportToPDF(reportData);
+      
+      const filename = `analytics-report-${period}-${new Date().toISOString().split('T')[0]}.pdf`;
+      
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Length', pdfBuffer.length);
+      
+      res.send(pdfBuffer);
+      
+      logger.info('PDF report generated', { agentId, filename });
+    } else {
+      // JSON format (default)
+      res.status(200).json({
+        success: true,
+        data: reportData,
+      });
+      
+      logger.info('JSON report generated', { agentId });
+    }
+  } catch (error) {
+    return ErrorResponse.send(
+      res,
+      error,
+      'Failed to generate report',
+      500,
+      { agentId: req.user.id }
+    );
+  }
+};
+
+/**
+ * Get report email preview
+ * GET /api/analytics/report/email-preview
+ * Task 4.4, Subtask 2: Email report generation (Plan line 1047)
+ * 
+ * @swagger
+ * /api/analytics/report/email-preview:
+ *   get:
+ *     summary: Get email report preview
+ *     description: Generates HTML preview of email report
+ *     tags: [Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: period
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [daily, weekly, monthly]
+ *         description: Report period type
+ *     responses:
+ *       200:
+ *         description: Email preview generated successfully
+ *         content:
+ *           text/html:
+ *             schema:
+ *               type: string
+ *       500:
+ *         description: Server error
+ */
+export const getEmailPreview = async (
+  req: AuthenticatedRequest<{}, {}, {}, any>,
+  res: Response
+): Promise<void> => {
+  try {
+    const agentId = req.user.id;
+    const { period = 'daily' } = req.query;
+
+    logger.info('Email preview request', { agentId, period });
+
+    // Generate report data
+    let reportData;
+    if (period === 'daily') {
+      reportData = await reportGeneratorService.generateDailySummary(agentId);
+    } else if (period === 'weekly') {
+      reportData = await reportGeneratorService.generateWeeklyReport(agentId);
+    } else {
+      reportData = await reportGeneratorService.generateMonthlyReport(agentId);
+    }
+
+    // Generate email HTML
+    const emailHtml = reportGeneratorService.generateEmailSummary(reportData);
+
+    res.setHeader('Content-Type', 'text/html');
+    res.send(emailHtml);
+
+    logger.info('Email preview generated', { agentId, period });
+  } catch (error) {
+    return ErrorResponse.send(
+      res,
+      error,
+      'Failed to generate email preview',
+      500,
+      { agentId: req.user.id }
+    );
+  }
+};
+
+/**
+ * Get line chart data for conversation trends
+ * GET /api/analytics/visualizations/conversation-trends
+ * Task 4.4, Subtask 3: Line charts for trends (Plan line 1054)
+ * 
+ * @swagger
+ * /api/analytics/visualizations/conversation-trends:
+ *   get:
+ *     summary: Get conversation trends line chart data
+ *     description: Returns time-series data for conversation trends
+ *     tags: [Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: startDate
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: date
+ *       - in: query
+ *         name: endDate
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: date
+ *       - in: query
+ *         name: groupBy
+ *         schema:
+ *           type: string
+ *           enum: [day, week, month]
+ *           default: day
+ *     responses:
+ *       200:
+ *         description: Chart data retrieved successfully
+ */
+export const getConversationTrendsChart = async (
+  req: AuthenticatedRequest<{}, {}, {}, any>,
+  res: Response
+): Promise<void> => {
+  try {
+    const agentId = req.user.id;
+    const { startDate, endDate, groupBy = 'day' } = req.query;
+
+    if (!startDate || !endDate) {
+      return ErrorResponse.send(
+        res,
+        new Error('Missing dates'),
+        'Start date and end date are required',
+        400,
+        { agentId }
+      );
+    }
+
+    const data = await visualizationService.getConversationTrendsChart(
+      agentId,
+      {
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+      },
+      groupBy as any
+    );
+
+    res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    return ErrorResponse.send(res, error, 'Failed to retrieve chart data', 500, {
+      agentId: req.user.id,
+    });
+  }
+};
+
+/**
+ * Get line chart data for lead quality trends
+ * GET /api/analytics/visualizations/lead-quality-trends
+ * Task 4.4, Subtask 3: Line charts for trends (Plan line 1054)
+ */
+export const getLeadQualityTrendsChart = async (
+  req: AuthenticatedRequest<{}, {}, {}, any>,
+  res: Response
+): Promise<void> => {
+  try {
+    const agentId = req.user.id;
+    const { startDate, endDate, groupBy = 'day' } = req.query;
+
+    if (!startDate || !endDate) {
+      return ErrorResponse.send(
+        res,
+        new Error('Missing dates'),
+        'Start date and end date are required',
+        400,
+        { agentId }
+      );
+    }
+
+    const data = await visualizationService.getLeadQualityTrendsChart(
+      agentId,
+      {
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+      },
+      groupBy as any
+    );
+
+    res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    return ErrorResponse.send(res, error, 'Failed to retrieve chart data', 500, {
+      agentId: req.user.id,
+    });
+  }
+};
+
+/**
+ * Get bar chart data for property type comparison
+ * GET /api/analytics/visualizations/property-type-comparison
+ * Task 4.4, Subtask 3: Bar charts for comparisons (Plan line 1055)
+ */
+export const getPropertyTypeComparisonChart = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const agentId = req.user.id;
+
+    const data = await visualizationService.getPropertyTypeComparisonChart(agentId);
+
+    res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    return ErrorResponse.send(res, error, 'Failed to retrieve chart data', 500, {
+      agentId: req.user.id,
+    });
+  }
+};
+
+/**
+ * Get bar chart data for location comparison
+ * GET /api/analytics/visualizations/location-comparison
+ * Task 4.4, Subtask 3: Bar charts for comparisons (Plan line 1055)
+ */
+export const getLocationComparisonChart = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const agentId = req.user.id;
+
+    const data = await visualizationService.getLocationComparisonChart(agentId);
+
+    res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    return ErrorResponse.send(res, error, 'Failed to retrieve chart data', 500, {
+      agentId: req.user.id,
+    });
+  }
+};
+
+/**
+ * Get pie chart data for lead quality distribution
+ * GET /api/analytics/visualizations/lead-quality-distribution
+ * Task 4.4, Subtask 3: Pie charts for distributions (Plan line 1056)
+ */
+export const getLeadQualityDistributionChart = async (
+  req: AuthenticatedRequest<{}, {}, {}, any>,
+  res: Response
+): Promise<void> => {
+  try {
+    const agentId = req.user.id;
+    const { startDate, endDate } = req.query;
+
+    if (!startDate || !endDate) {
+      return ErrorResponse.send(
+        res,
+        new Error('Missing dates'),
+        'Start date and end date are required',
+        400,
+        { agentId }
+      );
+    }
+
+    const data = await visualizationService.getLeadQualityDistributionChart(agentId, {
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    });
+
+    res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    return ErrorResponse.send(res, error, 'Failed to retrieve chart data', 500, {
+      agentId: req.user.id,
+    });
+  }
+};
+
+/**
+ * Get pie chart data for conversation status distribution
+ * GET /api/analytics/visualizations/conversation-status
+ * Task 4.4, Subtask 3: Pie charts for distributions (Plan line 1056)
+ */
+export const getConversationStatusChart = async (
+  req: AuthenticatedRequest<{}, {}, {}, any>,
+  res: Response
+): Promise<void> => {
+  try {
+    const agentId = req.user.id;
+    const { startDate, endDate } = req.query;
+
+    if (!startDate || !endDate) {
+      return ErrorResponse.send(
+        res,
+        new Error('Missing dates'),
+        'Start date and end date are required',
+        400,
+        { agentId }
+      );
+    }
+
+    const data = await visualizationService.getConversationStatusChart(agentId, {
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    });
+
+    res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    return ErrorResponse.send(res, error, 'Failed to retrieve chart data', 500, {
+      agentId: req.user.id,
+    });
+  }
+};
+
+/**
+ * Get funnel data for lead journey
+ * GET /api/analytics/visualizations/lead-journey-funnel
+ * Task 4.4, Subtask 3: Funnel for lead journey (Plan line 1057)
+ */
+export const getLeadJourneyFunnel = async (
+  req: AuthenticatedRequest<{}, {}, {}, any>,
+  res: Response
+): Promise<void> => {
+  try {
+    const agentId = req.user.id;
+    const { startDate, endDate } = req.query;
+
+    if (!startDate || !endDate) {
+      return ErrorResponse.send(
+        res,
+        new Error('Missing dates'),
+        'Start date and end date are required',
+        400,
+        { agentId }
+      );
+    }
+
+    const data = await visualizationService.getLeadJourneyFunnel(agentId, {
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    });
+
+    res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    return ErrorResponse.send(res, error, 'Failed to retrieve funnel data', 500, {
+      agentId: req.user.id,
+    });
+  }
+};
+
+/**
+ * Get heatmap data for peak hours analysis
+ * GET /api/analytics/visualizations/peak-hours-heatmap
+ * Task 4.4, Subtask 3: Heatmap for peak hours (Plan line 1058)
+ */
+export const getPeakHoursHeatmap = async (
+  req: AuthenticatedRequest<{}, {}, {}, any>,
+  res: Response
+): Promise<void> => {
+  try {
+    const agentId = req.user.id;
+    const { startDate, endDate } = req.query;
+
+    if (!startDate || !endDate) {
+      return ErrorResponse.send(
+        res,
+        new Error('Missing dates'),
+        'Start date and end date are required',
+        400,
+        { agentId }
+      );
+    }
+
+    const data = await visualizationService.getPeakHoursHeatmap(agentId, {
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    });
+
+    res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    return ErrorResponse.send(res, error, 'Failed to retrieve heatmap data', 500, {
+      agentId: req.user.id,
+    });
+  }
+};
 
