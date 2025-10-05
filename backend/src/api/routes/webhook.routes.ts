@@ -18,7 +18,7 @@ router.get('/whatsapp', (req, res) => webhookController.verifyWebhook(req, res))
  * POST /webhook/whatsapp - Receive Messages
  * Receives incoming messages, statuses, and other events from WhatsApp
  */
-router.post('/whatsapp', (req, res) => webhookController.receiveWebhook(req, res));
+router.post('/whatsapp', (req, res) => webhookController.receiveMessage(req, res));
 
 /**
  * GET /webhook/health - Health Check
@@ -27,4 +27,3 @@ router.post('/whatsapp', (req, res) => webhookController.receiveWebhook(req, res
 router.get('/health', (req, res) => webhookController.healthCheck(req, res));
 
 export default router;
-
