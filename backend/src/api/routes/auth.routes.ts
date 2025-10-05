@@ -93,11 +93,7 @@ const router = Router();
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post(
-  '/register',
-  validate(RegisterSchema),
-  authController.register
-);
+router.post('/register', validate(RegisterSchema), authController.register);
 
 /**
  * @swagger
@@ -158,11 +154,7 @@ router.post(
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post(
-  '/login',
-  validate(LoginSchema),
-  authController.login
-);
+router.post('/login', validate(LoginSchema), authController.login);
 
 /**
  * @swagger
@@ -209,11 +201,7 @@ router.post(
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post(
-  '/refresh-token',
-  validate(RefreshTokenSchema),
-  authController.refreshToken
-);
+router.post('/refresh-token', validate(RefreshTokenSchema), authController.refreshToken);
 
 /**
  * @swagger
@@ -255,11 +243,7 @@ router.post(
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post(
-  '/forgot-password',
-  validate(ForgotPasswordSchema),
-  authController.forgotPassword
-);
+router.post('/forgot-password', validate(ForgotPasswordSchema), authController.forgotPassword);
 
 /**
  * @swagger
@@ -305,11 +289,7 @@ router.post(
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post(
-  '/reset-password',
-  validate(ResetPasswordSchema),
-  authController.resetPassword
-);
+router.post('/reset-password', validate(ResetPasswordSchema), authController.resetPassword);
 
 /**
  * @swagger
@@ -393,11 +373,7 @@ router.post(
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post(
-  '/logout',
-  authenticate,
-  authController.logout
-);
+router.post('/logout', authenticate, authController.logout);
 
 /**
  * @swagger
@@ -430,11 +406,6 @@ router.post(
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get(
-  '/me',
-  authenticate,
-  authController.getCurrentUser
-);
+router.get('/me', authenticate, authController.getMe);
 
 export default router;
-

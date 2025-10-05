@@ -1,7 +1,7 @@
 /**
  * Escalation Handoff Service
  * Task 4.5, Subtask 3: Handoff Flow (Plan lines 1084-1089)
- * 
+ *
  * Manages the complete handoff process:
  * - AI informs customer agent will respond soon
  * - AI summarizes conversation for agent
@@ -15,11 +15,8 @@ import { whatsappService } from '../whatsapp/whatsapp.service';
 import { sessionManager } from '../session/session-manager.service';
 import { prisma } from '../../config/prisma-client';
 import { ConversationState, ConversationSession } from '../session/types';
-import { openaiClient } from '../ai/openai-client';
-import {
-  EscalationDetection,
-  escalationDetectorService,
-} from './escalation-detector.service';
+import { openaiClient } from '../../config/openai-client';
+import { EscalationDetection, escalationDetectorService } from './escalation-detector.service';
 import {
   EscalationNotificationData,
   escalationNotificationService,
@@ -68,7 +65,12 @@ export class EscalationHandoffService {
       const customerNotified = await this.notifyCustomer(session, escalation);
 
       // 5. Send notifications to agent (Plan line 1087-1088)
-      const agentNotified = await this.notifyAgent(session, conversation, escalation, conversationSummary);
+      const agentNotified = await this.notifyAgent(
+        session,
+        conversation,
+        escalation,
+        conversationSummary
+      );
 
       // 6. Log escalation event
       await this.logEscalationEvent(session, escalation);
@@ -192,7 +194,8 @@ Keep it concise but comprehensive. Format in clear bullet points.`;
         messages: [
           {
             role: 'system',
-            content: 'You are an expert at summarizing customer conversations for real estate agents. Be concise, clear, and actionable.',
+            content:
+              'You are an expert at summarizing customer conversations for real estate agents. Be concise, clear, and actionable.',
           },
           { role: 'user', content: prompt },
         ],
@@ -424,7 +427,12 @@ Keep it concise but comprehensive. Format in clear bullet points.`;
           status: 'active',
           lastActivityAt: new Date(),
           metadata: {
-            ...(await prisma.conversation.findUnique({ where: { id: conversationId }, select: { metadata: true } }))?.metadata,
+            ...(
+              await prisma.conversation.findUnique({
+                where: { id: conversationId },
+                select: { metadata: true },
+              })
+            )?.metadata,
             aiResumed: true,
             aiResumedAt: new Date().toISOString(),
             handledByAgent: agentId,

@@ -1,7 +1,7 @@
 /**
  * Escalation Detector Service
  * Task 4.5, Subtask 1: Escalation Triggers (Plan lines 1071-1076)
- * 
+ *
  * Detects when conversation should be escalated to human agent:
  * - Customer explicitly asks for agent
  * - AI detects frustration/anger
@@ -11,7 +11,7 @@
  */
 
 import { createServiceLogger } from '../../utils/logger';
-import { openaiClient } from '../ai/openai-client';
+import { openaiClient } from '../../config/openai-client';
 import { ConversationSession } from '../session/types';
 
 const logger = createServiceLogger('EscalationDetector');
@@ -20,12 +20,12 @@ const logger = createServiceLogger('EscalationDetector');
  * Escalation trigger types
  */
 export enum EscalationTrigger {
-  EXPLICIT_REQUEST = 'EXPLICIT_REQUEST',           // Customer asks for agent
-  FRUSTRATION_DETECTED = 'FRUSTRATION_DETECTED',   // AI detects frustration/anger
-  COMPLEX_QUERY = 'COMPLEX_QUERY',                 // Query too complex for AI
-  NEGOTIATION_REQUEST = 'NEGOTIATION_REQUEST',     // Custom deal/negotiation
-  COMPLAINT = 'COMPLAINT',                         // Complaint handling
-  REPEATED_QUESTION = 'REPEATED_QUESTION',         // Customer keeps asking same thing
+  EXPLICIT_REQUEST = 'EXPLICIT_REQUEST', // Customer asks for agent
+  FRUSTRATION_DETECTED = 'FRUSTRATION_DETECTED', // AI detects frustration/anger
+  COMPLEX_QUERY = 'COMPLEX_QUERY', // Query too complex for AI
+  NEGOTIATION_REQUEST = 'NEGOTIATION_REQUEST', // Custom deal/negotiation
+  COMPLAINT = 'COMPLAINT', // Complaint handling
+  REPEATED_QUESTION = 'REPEATED_QUESTION', // Customer keeps asking same thing
 }
 
 /**
@@ -217,13 +217,7 @@ export class EscalationDetectorService {
     ];
 
     // Arabic negotiation patterns
-    const arabicPatterns = [
-      /تفاوض|مفاوضة/,
-      /خصم|تخفيض/,
-      /عرض\s+خاص/,
-      /تقسيط/,
-      /سعر\s+أفضل/,
-    ];
+    const arabicPatterns = [/تفاوض|مفاوضة/, /خصم|تخفيض/, /عرض\s+خاص/, /تقسيط/, /سعر\s+أفضل/];
 
     const allPatterns = [...englishPatterns, ...arabicPatterns];
 
@@ -233,7 +227,7 @@ export class EscalationDetectorService {
         return {
           shouldEscalate: true,
           trigger: EscalationTrigger.NEGOTIATION_REQUEST,
-          confidence: 0.80,
+          confidence: 0.8,
           reason: 'Customer requesting negotiation or custom deal - requires agent approval',
           customerMessage: message,
         };
@@ -242,7 +236,7 @@ export class EscalationDetectorService {
 
     return {
       shouldEscalate: false,
-      confidence: 0.80,
+      confidence: 0.8,
       reason: 'No negotiation request detected',
     };
   }
@@ -259,7 +253,7 @@ export class EscalationDetectorService {
     const recentUserMessages = session.context.messageHistory
       .filter((msg) => msg.role === 'user')
       .slice(-5)
-      .map((msg) => typeof msg.content === 'string' ? msg.content.toLowerCase() : '');
+      .map((msg) => (typeof msg.content === 'string' ? msg.content.toLowerCase() : ''));
 
     const currentMessageLower = message.toLowerCase();
 
@@ -332,7 +326,8 @@ Respond in JSON format:
         messages: [
           {
             role: 'system',
-            content: 'You are an expert at detecting customer emotions and sentiment. Be accurate and conservative in your assessments.',
+            content:
+              'You are an expert at detecting customer emotions and sentiment. Be accurate and conservative in your assessments.',
           },
           { role: 'user', content: prompt },
         ],
@@ -412,7 +407,8 @@ Respond in JSON format:
         messages: [
           {
             role: 'system',
-            content: 'You are an expert at assessing query complexity and determining if human intervention is needed.',
+            content:
+              'You are an expert at assessing query complexity and determining if human intervention is needed.',
           },
           { role: 'user', content: prompt },
         ],

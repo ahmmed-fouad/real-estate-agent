@@ -1,7 +1,7 @@
 /**
  * Scheduled Reports Service
  * Task 4.4, Critical Issue #2: Automated report delivery
- * 
+ *
  * Handles scheduled generation and delivery of reports:
  * - Daily summary emails (every morning)
  * - Weekly performance reports (every Monday)
@@ -13,7 +13,7 @@ import { createServiceLogger } from '../../utils/logger';
 import { reportGeneratorService, ReportPeriod } from './report-generator.service';
 import { emailService } from '../email/email.service';
 import { prisma } from '../../config/prisma-client';
-import { getRedisConnection } from '../redis/redis-connection-manager';
+import { redisManager } from '../../config/redis-manager';
 
 const logger = createServiceLogger('ScheduledReportsService');
 
@@ -37,14 +37,9 @@ export class ScheduledReportsService {
     logger.info('Initializing scheduled reports service');
 
     try {
-      const redis = getRedisConnection();
-
-      // Create report queue
+      // Create report queue using Bull's Redis config
       this.reportQueue = new Queue<ScheduledReportJob>('scheduled-reports', {
-        redis: {
-          host: redis.options.host,
-          port: redis.options.port || 6379,
-        },
+        redis: redisManager.getBullRedisConfig(),
         defaultJobOptions: {
           attempts: 3,
           backoff: {
@@ -183,11 +178,7 @@ export class ScheduledReportsService {
         const emailHtml = reportGeneratorService.generateEmailSummary(reportData);
         const subject = `${reportData.title} - ${new Date().toLocaleDateString()}`;
 
-        const success = await emailService.sendReportEmail(
-          job.emailAddress,
-          subject,
-          emailHtml
-        );
+        const success = await emailService.sendReportEmail(job.emailAddress, subject, emailHtml);
 
         if (success) {
           logger.info('Report email sent successfully', {

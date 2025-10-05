@@ -2,7 +2,7 @@
  * Authentication Controller
  * Handles agent authentication operations
  * As per plan Task 3.1, Subtask 1: Authentication System (lines 691-703)
- * 
+ *
  * Endpoints:
  * - POST /api/auth/register (line 698)
  * - POST /api/auth/login (line 699)
@@ -27,6 +27,7 @@ import {
   ResetPasswordData,
   ChangePasswordData,
 } from '../validators/auth.validators';
+import { prisma } from '../../config/prisma-client';
 
 const logger = createServiceLogger('AuthController');
 
@@ -49,10 +50,7 @@ export const register = async (
 
     if (emailExists) {
       logger.warn('Registration failed: Email already exists', { email });
-      return ErrorResponse.conflict(
-        res,
-        'An agent with this email already exists'
-      );
+      return ErrorResponse.conflict(res, 'An agent with this email already exists');
     }
 
     // Hash password
@@ -71,11 +69,7 @@ export const register = async (
     });
 
     // Generate tokens
-    const tokens = await jwtService.generateTokens(
-      agent.id,
-      agent.email,
-      UserRole.AGENT
-    );
+    const tokens = await jwtService.generateTokens(agent.id, agent.email, UserRole.AGENT);
 
     logger.info('Agent registered successfully', {
       agentId: agent.id,
@@ -91,13 +85,7 @@ export const register = async (
       },
     });
   } catch (error) {
-    return ErrorResponse.send(
-      res,
-      error,
-      'Registration failed',
-      500,
-      { email: req.body.email }
-    );
+    return ErrorResponse.send(res, error, 'Registration failed', 500, { email: req.body.email });
   }
 };
 
@@ -106,10 +94,7 @@ export const register = async (
  * POST /api/auth/login
  * As per plan line 699
  */
-export const login = async (
-  req: Request<{}, {}, LoginData>,
-  res: Response
-): Promise<void> => {
+export const login = async (req: Request<{}, {}, LoginData>, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body;
 
@@ -145,10 +130,7 @@ export const login = async (
     }
 
     // Verify password
-    const isPasswordValid = await jwtService.comparePassword(
-      password,
-      agent.passwordHash
-    );
+    const isPasswordValid = await jwtService.comparePassword(password, agent.passwordHash);
 
     if (!isPasswordValid) {
       logger.warn('Login failed: Invalid password', { email });
@@ -161,11 +143,7 @@ export const login = async (
     }
 
     // Generate tokens
-    const tokens = await jwtService.generateTokens(
-      agent.id,
-      agent.email,
-      UserRole.AGENT
-    );
+    const tokens = await jwtService.generateTokens(agent.id, agent.email, UserRole.AGENT);
 
     logger.info('Login successful', {
       agentId: agent.id,
@@ -269,10 +247,7 @@ export const forgotPassword = async (
     }
 
     // Generate reset token
-    const resetToken = await jwtService.generatePasswordResetToken(
-      agent.id,
-      agent.email
-    );
+    const resetToken = await jwtService.generatePasswordResetToken(agent.id, agent.email);
 
     // TODO: Send email with reset link (Phase 4 - Email service)
     // For now, return token in response (development only)
@@ -402,10 +377,7 @@ export const changePassword = async (
     }
 
     // Verify old password
-    const isOldPasswordValid = await jwtService.comparePassword(
-      oldPassword,
-      agent.passwordHash
-    );
+    const isOldPasswordValid = await jwtService.comparePassword(oldPassword, agent.passwordHash);
 
     if (!isOldPasswordValid) {
       logger.warn('Password change failed: Invalid old password', { agentId });
@@ -453,10 +425,7 @@ export const changePassword = async (
  * Logout agent
  * POST /api/auth/logout
  */
-export const logout = async (
-  req: AuthenticatedRequest,
-  res: Response
-): Promise<void> => {
+export const logout = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const agentId = req.user?.id;
     const token = req.headers.authorization?.substring(7); // Remove 'Bearer '
@@ -501,10 +470,7 @@ export const logout = async (
  * Get current authenticated agent
  * GET /api/auth/me
  */
-export const getMe = async (
-  req: AuthenticatedRequest,
-  res: Response
-): Promise<void> => {
+export const getMe = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const agentId = req.user?.id;
 
@@ -556,5 +522,3 @@ export const getMe = async (
     });
   }
 };
-
-

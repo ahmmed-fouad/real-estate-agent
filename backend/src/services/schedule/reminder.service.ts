@@ -2,7 +2,7 @@
  * Reminder Service
  * Task 4.3, Subtask 3: Reminder System
  * As per plan lines 1000-1003
- * 
+ *
  * Handles:
  * - Send reminder 24h before viewing
  * - Send reminder 2h before viewing
@@ -11,7 +11,7 @@
 
 import Queue, { Job } from 'bull';
 import { createServiceLogger } from '../../utils/logger';
-import { redisManager } from '../../config/redis-connection';
+import { redisManager } from '../../config/redis-manager';
 import { whatsappService } from '../whatsapp/whatsapp.service';
 import { prisma } from '../../config/prisma-client';
 import { messageBuilderService } from './message-builder.service';
@@ -79,7 +79,7 @@ export class ReminderService {
   /**
    * Schedule reminders for a new viewing
    * Task 4.3, Subtask 3: As per plan lines 1001-1002
-   * 
+   *
    * @param viewingId - Viewing ID
    * @param scheduledTime - Viewing scheduled time
    */
@@ -142,7 +142,7 @@ export class ReminderService {
    * Cancel scheduled reminders for a viewing
    * Task 4.3, Subtask 3: As per plan line 1003
    * Used when viewing is cancelled or rescheduled
-   * 
+   *
    * @param viewingId - Viewing ID
    */
   async cancelReminders(viewingId: string): Promise<void> {
@@ -176,7 +176,7 @@ export class ReminderService {
   /**
    * Reschedule reminders for a viewing
    * Task 4.3, Subtask 3: As per plan line 1003
-   * 
+   *
    * @param viewingId - Viewing ID
    * @param newScheduledTime - New viewing time
    */
@@ -253,9 +253,10 @@ export class ReminderService {
       }
 
       // Build reminder message using shared service
-      const message = type === '24h' 
-        ? messageBuilderService.build24hReminder(viewing, scheduledTime)
-        : messageBuilderService.build2hReminder(viewing, scheduledTime);
+      const message =
+        type === '24h'
+          ? messageBuilderService.build24hReminder(viewing, scheduledTime)
+          : messageBuilderService.build2hReminder(viewing, scheduledTime);
 
       // Send WhatsApp message
       await whatsappService.sendTextMessage(viewing.customerPhone, message);
