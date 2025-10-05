@@ -75,11 +75,7 @@ router.use(authenticate);
  *       401:
  *         description: Not authenticated
  */
-router.get(
-  '/overview',
-  validate(AnalyticsOverviewSchema),
-  analyticsController.getOverview
-);
+router.get('/overview', validate(AnalyticsOverviewSchema), analyticsController.getOverview);
 
 /**
  * @swagger
@@ -177,11 +173,7 @@ router.get(
  *                     averageLeadScore:
  *                       type: number
  */
-router.get(
-  '/leads',
-  validate(LeadAnalyticsSchema),
-  analyticsController.getLeadAnalytics
-);
+router.get('/leads', validate(LeadAnalyticsSchema), analyticsController.getLeadAnalytics);
 
 /**
  * @swagger
@@ -199,7 +191,7 @@ router.get(
  *           type: string
  *           format: date
  *       - in: query
- *         name: endDate:
+ *         name: endDate
  *         schema:
  *           type: string
  *           format: date
@@ -278,11 +270,7 @@ router.get(
  *                     totalIntents:
  *                       type: number
  */
-router.get(
-  '/topics',
-  validate(InquiryTopicsSchema),
-  analyticsController.getInquiryTopics
-);
+router.get('/topics', validate(InquiryTopicsSchema), analyticsController.getInquiryTopics);
 
 /**
  * Task 4.4, Subtask 1: Detailed metrics endpoint
@@ -306,38 +294,19 @@ router.get('/report/email-preview', analyticsController.getEmailPreview);
  * Task 4.4, Subtask 3: Visualization endpoints
  * Dashboard visualization data for charts
  */
-router.get(
-  '/visualizations/conversation-trends',
-  analyticsController.getConversationTrendsChart
-);
-router.get(
-  '/visualizations/lead-quality-trends',
-  analyticsController.getLeadQualityTrendsChart
-);
+router.get('/visualizations/conversation-trends', analyticsController.getConversationTrendsChart);
+router.get('/visualizations/lead-quality-trends', analyticsController.getLeadQualityTrendsChart);
 router.get(
   '/visualizations/property-type-comparison',
   analyticsController.getPropertyTypeComparisonChart
 );
-router.get(
-  '/visualizations/location-comparison',
-  analyticsController.getLocationComparisonChart
-);
+router.get('/visualizations/location-comparison', analyticsController.getLocationComparisonChart);
 router.get(
   '/visualizations/lead-quality-distribution',
   analyticsController.getLeadQualityDistributionChart
 );
-router.get(
-  '/visualizations/conversation-status',
-  analyticsController.getConversationStatusChart
-);
-router.get(
-  '/visualizations/lead-journey-funnel',
-  analyticsController.getLeadJourneyFunnel
-);
-router.get(
-  '/visualizations/peak-hours-heatmap',
-  analyticsController.getPeakHoursHeatmap
-);
+router.get('/visualizations/conversation-status', analyticsController.getConversationStatusChart);
+router.get('/visualizations/lead-journey-funnel', analyticsController.getLeadJourneyFunnel);
+router.get('/visualizations/peak-hours-heatmap', analyticsController.getPeakHoursHeatmap);
 
 export default router;
-

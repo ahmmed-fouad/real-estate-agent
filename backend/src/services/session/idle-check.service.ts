@@ -26,10 +26,7 @@ export class IdleCheckService {
 
   constructor() {
     // Get interval from environment (default: 5 minutes)
-    this.checkIntervalMinutes = parseInt(
-      process.env.IDLE_CHECK_INTERVAL_MINUTES || '5',
-      10
-    );
+    this.checkIntervalMinutes = parseInt(process.env.IDLE_CHECK_INTERVAL_MINUTES || '5', 10);
 
     // Create Bull queue for idle checks with shared config
     this.queue = new Queue<IdleCheckJob>('idle-session-check', {
@@ -133,9 +130,16 @@ export class IdleCheckService {
     });
 
     this.queue.on('error', (error) => {
-      logger.error('Idle check queue error', {
-        error: error.message,
-      });
+      // Only log non-connection errors to reduce noise during startup
+      if (
+        !error.message.includes('ECONNREFUSED') &&
+        !error.message.includes('connect ETIMEDOUT') &&
+        !error.message.includes('Connection is closed')
+      ) {
+        logger.error('Idle check queue error', {
+          error: error.message,
+        });
+      }
     });
 
     this.queue.on('ready', () => {
@@ -191,4 +195,3 @@ export class IdleCheckService {
 
 // Export singleton instance
 export const idleCheckService = new IdleCheckService();
-

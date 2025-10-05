@@ -50,27 +50,67 @@ class RedisConnectionManager {
         port: redisConfig.port,
         password: redisConfig.password,
         db: redisConfig.db,
+        ...(redisConfig.tls && {
+          tls: {
+            rejectUnauthorized: true,
+          },
+        }),
+        lazyConnect: true, // Don't connect immediately
         retryStrategy: (times) => {
-          const delay = Math.min(times * 50, 2000);
+          // Stop retrying after 10 attempts
+          if (times > 10) {
+            logger.error('Redis connection failed after 10 attempts. Giving up.');
+            return null; // Stop retrying
+          }
+          const delay = Math.min(times * 1000, 5000);
           logger.debug('Redis retry attempt', { times, delay });
           return delay;
         },
         reconnectOnError: (err) => {
-          logger.error('Redis connection error', { error: err.message });
-          return true; // Always reconnect
+          // Only reconnect for specific errors
+          const targetError = 'READONLY';
+          if (err.message.includes(targetError)) {
+            logger.warn('Redis READONLY error, attempting reconnect', { error: err.message });
+            return true;
+          }
+          // Don't log here - errors are already logged by the 'error' event handler
+          return false;
         },
+        maxRetriesPerRequest: 3,
       });
 
       this.mainClient.on('connect', () => {
-        logger.info('Main Redis client connected');
+        logger.info('Main Redis client connecting...');
+      });
+
+      this.mainClient.on('ready', () => {
+        logger.info('Main Redis client ready', {
+          host: redisConfig.host,
+          port: redisConfig.port,
+        });
       });
 
       this.mainClient.on('error', (error) => {
-        logger.error('Main Redis client error', { error: error.message });
+        // Only log non-connection errors (connection errors are handled by retryStrategy)
+        if (!error.message.includes('ECONNREFUSED') && !error.message.includes('ETIMEDOUT')) {
+          logger.error('Main Redis client error', { error: error.message });
+        }
       });
 
       this.mainClient.on('close', () => {
         logger.warn('Main Redis client connection closed');
+      });
+
+      // Attempt to connect
+      this.mainClient.connect().catch((err) => {
+        logger.error('Failed to connect to Redis. Redis features will be unavailable.', {
+          error: err.message,
+          host: redisConfig.host,
+          port: redisConfig.port,
+        });
+        logger.warn(
+          'Please ensure Redis is installed and running: sudo systemctl start redis-server'
+        );
       });
     }
 
@@ -87,6 +127,11 @@ class RedisConnectionManager {
       port: redisConfig.port,
       password: redisConfig.password,
       db: redisConfig.db,
+      ...(redisConfig.tls && {
+        tls: {
+          rejectUnauthorized: true,
+        },
+      }),
       maxRetriesPerRequest: null, // Required for Bull
       enableReadyCheck: false, // Required for Bull
     };
@@ -108,6 +153,19 @@ class RedisConnectionManager {
       port: redisConfig.port,
       password: redisConfig.password,
       db: redisConfig.db,
+      ...(redisConfig.tls && {
+        tls: {
+          rejectUnauthorized: true,
+        },
+      }),
+      lazyConnect: true,
+      retryStrategy: (times) => {
+        if (times > 10) {
+          return null; // Stop retrying
+        }
+        return Math.min(times * 1000, 5000);
+      },
+      maxRetriesPerRequest: 3,
     });
 
     subscriber.on('connect', () => {
@@ -115,7 +173,17 @@ class RedisConnectionManager {
     });
 
     subscriber.on('error', (error) => {
-      logger.error('Redis subscriber error', { name, error: error.message });
+      // Only log non-connection errors
+      if (!error.message.includes('ECONNREFUSED') && !error.message.includes('ETIMEDOUT')) {
+        logger.error('Redis subscriber error', { name, error: error.message });
+      }
+    });
+
+    subscriber.connect().catch((err) => {
+      logger.error('Failed to connect Redis subscriber', {
+        name,
+        error: err.message,
+      });
     });
 
     this.subscribers.set(name, subscriber);
@@ -184,4 +252,3 @@ class RedisConnectionManager {
 
 // Export singleton instance
 export const redisManager = RedisConnectionManager.getInstance();
-

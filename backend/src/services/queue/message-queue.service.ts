@@ -335,7 +335,14 @@ export class MessageQueueService {
 
     // Queue error
     this.queue.on('error', (error) => {
-      logger.error('Queue error', { error: error.message });
+      // Only log non-connection errors to reduce noise during startup
+      if (
+        !error.message.includes('ECONNREFUSED') &&
+        !error.message.includes('connect ETIMEDOUT') &&
+        !error.message.includes('Connection is closed')
+      ) {
+        logger.error('Queue error', { error: error.message });
+      }
     });
 
     // Queue ready

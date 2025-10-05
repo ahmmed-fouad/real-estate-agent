@@ -311,9 +311,16 @@ export class ReminderService {
     });
 
     this.queue.on('error', (error: Error) => {
-      logger.error('Reminder queue error', {
-        error: error.message,
-      });
+      // Only log non-connection errors to reduce noise during startup
+      if (
+        !error.message.includes('ECONNREFUSED') &&
+        !error.message.includes('connect ETIMEDOUT') &&
+        !error.message.includes('Connection is closed')
+      ) {
+        logger.error('Reminder queue error', {
+          error: error.message,
+        });
+      }
     });
   }
 

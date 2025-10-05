@@ -1,7 +1,7 @@
 /**
  * Property Batch Upload Queue Service
  * Task 3.3, Subtask 4: Batch Processing (lines 887-891)
- * 
+ *
  * Features:
  * - Queue system for large uploads
  * - Progress tracking
@@ -98,7 +98,7 @@ export class PropertyBatchQueueService {
   /**
    * Add a batch upload job to the queue
    * Task 3.3, Subtask 4: Queue system for large uploads
-   * 
+   *
    * @param batchData - Batch job data
    * @param options - Bull job options
    * @returns Job instance
@@ -142,12 +142,10 @@ export class PropertyBatchQueueService {
 
   /**
    * Start processing batches from the queue
-   * 
+   *
    * @param processor - Function to process each batch
    */
-  startProcessing(
-    processor: (job: Job<PropertyBatchJob>) => Promise<PropertyBatchResult>
-  ): void {
+  startProcessing(processor: (job: Job<PropertyBatchJob>) => Promise<PropertyBatchResult>): void {
     if (this.isProcessing) {
       logger.warn('Batch queue processing already started');
       return;
@@ -225,7 +223,7 @@ export class PropertyBatchQueueService {
       percentage: 0,
     };
 
-    const redis = redisManager.getClient();
+    const redis = redisManager.getMainClient();
     const key = `${this.PROGRESS_PREFIX}${batchId}`;
 
     await redis.setex(key, this.PROGRESS_TTL, JSON.stringify(progress));
@@ -239,7 +237,7 @@ export class PropertyBatchQueueService {
    */
   async updateProgress(batchId: string, update: Partial<ProgressUpdate>): Promise<void> {
     try {
-      const redis = redisManager.getClient();
+      const redis = redisManager.getMainClient();
       const key = `${this.PROGRESS_PREFIX}${batchId}`;
 
       // Get current progress
@@ -283,7 +281,7 @@ export class PropertyBatchQueueService {
    */
   async getProgress(batchId: string): Promise<ProgressUpdate | null> {
     try {
-      const redis = redisManager.getClient();
+      const redis = redisManager.getMainClient();
       const key = `${this.PROGRESS_PREFIX}${batchId}`;
 
       const data = await redis.get(key);
@@ -307,7 +305,7 @@ export class PropertyBatchQueueService {
    */
   private async storeFinalResult(result: PropertyBatchResult): Promise<void> {
     try {
-      const redis = redisManager.getClient();
+      const redis = redisManager.getMainClient();
       const key = `batch-result:${result.batchId}`;
       const TTL = 86400; // 24 hours
 
@@ -332,7 +330,7 @@ export class PropertyBatchQueueService {
    */
   async getBatchResult(batchId: string): Promise<PropertyBatchResult | null> {
     try {
-      const redis = redisManager.getClient();
+      const redis = redisManager.getMainClient();
       const key = `batch-result:${batchId}`;
 
       const data = await redis.get(key);
@@ -406,7 +404,14 @@ export class PropertyBatchQueueService {
 
     // Queue error
     this.queue.on('error', (error) => {
-      logger.error('Batch queue error', { error: error.message });
+      // Only log non-connection errors to reduce noise during startup
+      if (
+        !error.message.includes('ECONNREFUSED') &&
+        !error.message.includes('connect ETIMEDOUT') &&
+        !error.message.includes('Connection is closed')
+      ) {
+        logger.error('Batch queue error', { error: error.message });
+      }
     });
 
     // Queue ready
