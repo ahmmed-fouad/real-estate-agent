@@ -1,0 +1,4 @@
+projectName,developerName,propertyType,city,district,basePrice,area,bedrooms,bathrooms,description,amenities
+Sample Villa 1,Sample Developer,Villa,Cairo,New Cairo,5000000,200,4,3,"Beautiful villa with garden","Swimming Pool,Garden,Parking"
+Sample Apartment 1,Sample Developer,Apartment,Cairo,Maadi,2000000,120,3,2,"Modern apartment with balcony","Balcony,Parking,Elevator"
+Sample Villa 2,Sample Developer,Villa,Alexandria,North Coast,8000000,300,5,4,"Luxury beach villa","Swimming Pool,Beach Access,Garden"
