@@ -15,6 +15,7 @@ import {
   CloseConversationSchema,
   ReleaseConversationSchema,
   ExportConversationSchema,
+  SendMessageAsAgentSchema,
 } from '../validators/conversation.validators';
 
 const router = Router();
@@ -304,6 +305,67 @@ router.get(
   '/:id/export',
   validate(ExportConversationSchema),
   conversationController.exportConversation
+);
+
+/**
+ * @swagger
+ * /api/conversations/{id}/send-message:
+ *   post:
+ *     summary: Send message as agent
+ *     description: Allows agent to send a message to customer via portal (Task 4.5 Fix #1)
+ *     tags: [Conversation Management]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - message
+ *             properties:
+ *               message:
+ *                 type: string
+ *                 minLength: 1
+ *                 maxLength: 4096
+ *                 description: Message text to send to customer
+ *     responses:
+ *       200:
+ *         description: Message sent successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     messageId:
+ *                       type: string
+ *                     sentAt:
+ *                       type: string
+ *                       format: date-time
+ *       400:
+ *         description: Invalid conversation state
+ *       404:
+ *         description: Conversation not found
+ */
+router.post(
+  '/:id/send-message',
+  validate(SendMessageAsAgentSchema),
+  conversationController.sendMessageAsAgent
 );
 
 export default router;

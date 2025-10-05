@@ -10,6 +10,7 @@ import { createServiceLogger } from '../../utils/logger';
 import { verifyWebhookSignature } from '../../utils/crypto';
 import { ErrorResponse } from '../../utils';
 import { WebhookPayload } from '../../services/whatsapp/types';
+import { prisma } from '../../config/prisma-client';
 
 const logger = createServiceLogger('WebhookController');
 
@@ -105,8 +106,47 @@ export class WebhookController {
   }
 
   /**
+   * Check if a phone number belongs to an agent
+   * Task 4.5 Fix #3: Detect agent messages
+   */
+  private async isAgentPhoneNumber(phoneNumber: string): Promise<{isAgent: boolean; agentId?: string; conversationId?: string}> {
+    try {
+      // Normalize phone number (remove whatsapp: prefix if present)
+      const normalizedPhone = phoneNumber.replace(/^whatsapp:/, '');
+      
+      // Check if this phone number belongs to an agent
+      const agent = await prisma.agent.findFirst({
+        where: {
+          OR: [
+            { whatsappNumber: normalizedPhone },
+            { phoneNumber: normalizedPhone },
+          ],
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (agent) {
+        // This is an agent - find the active conversation they're responding to
+        // We need to figure out which customer they're replying to
+        // For now, we'll mark it as an agent and handle it specially
+        return { isAgent: true, agentId: agent.id };
+      }
+
+      return { isAgent: false };
+    } catch (error) {
+      logger.error('Failed to check if phone is agent', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      return { isAgent: false };
+    }
+  }
+
+  /**
    * Process webhook payload asynchronously
    * Extracts messages and queues them for processing
+   * Task 4.5 Fix #3: Handle agent messages separately
    */
   private async processWebhookAsync(payload: WebhookPayload | any): Promise<void> {
     try {
@@ -150,8 +190,33 @@ export class WebhookController {
         }
       }
 
-      // Queue messages for processing
+      // Process messages
       for (const message of messages) {
+        // Check if this message is from an agent
+        const agentCheck = await this.isAgentPhoneNumber(message.from);
+
+        if (agentCheck.isAgent) {
+          // This is a message FROM an agent - log it but don't process through AI
+          logger.info('Agent message received via WhatsApp (not processing through AI)', {
+            from: message.from,
+            agentId: agentCheck.agentId,
+            messageId: message.messageId,
+            type: message.type,
+            content: message.text ? message.text.substring(0, 100) : '[media]',
+          });
+
+          // Note: Agent messages sent via their personal WhatsApp cannot be tracked to specific conversations
+          // without additional context. This is a limitation of the current design.
+          // Agents should use the portal endpoint to send trackable messages.
+          logger.warn('Agent message via WhatsApp direct - cannot track to specific conversation. Use portal for tracking.', {
+            agentId: agentCheck.agentId,
+            messageId: message.messageId,
+          });
+
+          continue; // Skip queueing this message
+        }
+
+        // This is a customer message - queue for normal processing
         const parsedMessage: any = {
           from: message.from,
           messageId: message.messageId,
@@ -170,7 +235,7 @@ export class WebhookController {
 
         await messageQueue.addMessage(parsedMessage);
 
-        logger.info('Message queued for processing', {
+        logger.info('Customer message queued for processing', {
           from: message.from,
           messageId: message.messageId,
           type: message.type,
@@ -178,7 +243,7 @@ export class WebhookController {
       }
 
       logger.info('Webhook processing completed', {
-        processedCount: messages.length,
+        totalMessages: messages.length,
       });
     } catch (error) {
       logger.error('Error in async webhook processing', {

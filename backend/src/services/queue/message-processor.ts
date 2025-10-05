@@ -17,6 +17,7 @@ import { leadScoringService } from '../lead';
 import { leadNotificationService } from '../notification';
 import { languageDetectionService } from '../language';
 import { schedulingIntegrationService } from '../schedule';
+import { escalationDetectorService, escalationHandoffService, EscalationTrigger } from '../escalation';
 import { prisma } from '../../config/prisma-client';
 
 const logger = createServiceLogger('MessageProcessor');
@@ -127,6 +128,27 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
       });
 
       try {
+        // ✅ Task 4.5 - Skip AI processing if conversation is escalated to agent
+        if (session.state === ConversationState.WAITING_AGENT) {
+          logger.info('Conversation is escalated to agent - skipping AI processing', {
+            sessionId: session.id,
+            customerId: session.customerId,
+            state: session.state,
+          });
+
+          // Just store the user message
+          await sessionManager.updateSession(session);
+
+          logger.info('User message stored, awaiting agent response', {
+            sessionId: session.id,
+          });
+
+          return {
+            processed: true,
+            responseGenerated: false, // AI did not generate a response
+          };
+        }
+
         // ✅ Task 4.3 Fix #5 - Handle customer slot selection
         if (session.context.awaitingSchedulingResponse && session.context.schedulingContext) {
           logger.info('Customer is responding to scheduling flow', {
@@ -288,6 +310,65 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
           currentIntent: session.context.currentIntent,
           extractedInfo: session.context.extractedInfo,
         });
+
+        // ✅ Task 4.5 - Detect escalation triggers
+        // As per plan lines 1071-1076: Check for escalation before generating AI response
+        logger.info('Detecting escalation triggers', {
+          sessionId: session.id,
+          messageId: message.messageId,
+        });
+
+        const escalationDetection = await escalationDetectorService.detectEscalation(
+          message.content,
+          session
+        );
+
+        logger.info('Escalation detection complete', {
+          sessionId: session.id,
+          shouldEscalate: escalationDetection.shouldEscalate,
+          trigger: escalationDetection.trigger,
+          confidence: escalationDetection.confidence,
+          reason: escalationDetection.reason,
+        });
+
+        // If escalation is detected, execute handoff immediately
+        if (escalationDetection.shouldEscalate) {
+          logger.info('Escalation detected - executing handoff', {
+            sessionId: session.id,
+            trigger: escalationDetection.trigger,
+            reason: escalationDetection.reason,
+          });
+
+          try {
+            // Execute complete handoff flow (Task 4.5, Subtask 3)
+            // This will: notify customer, update status, send agent notifications, generate summary
+            const handoffResult = await escalationHandoffService.executeHandoff(
+              session,
+              escalationDetection
+            );
+
+            logger.info('Escalation handoff executed successfully', {
+              sessionId: session.id,
+              conversationId: handoffResult.conversationId,
+              customerNotified: handoffResult.customerNotified,
+              agentNotified: handoffResult.agentNotified,
+            });
+
+            // Update session (state is now WAITING_AGENT)
+            await sessionManager.updateSession(session);
+
+            return {
+              processed: true,
+              responseGenerated: false, // No AI response - escalated to agent
+            };
+          } catch (escalationError) {
+            logger.error('Failed to execute escalation handoff', {
+              error: escalationError instanceof Error ? escalationError.message : 'Unknown error',
+              sessionId: session.id,
+            });
+            // Continue with normal processing as fallback
+          }
+        }
 
         // ✅ Task 4.3 Fix #3 - Handle SCHEDULE_VIEWING intent specially
         // As per plan lines 990-991: "AI suggests available slots", "Customer selects time"
@@ -492,22 +573,35 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
           type: 'text',
         });
 
-        // Handle escalation if needed
+        // Note: Task 4.5 - Escalation is now handled proactively BEFORE response generation
+        // See escalation detection code above (lines 314-371)
+        // If requiresEscalation is still true here, it means post-processor detected
+        // something that wasn't caught earlier (edge case)
         if (enhancedResponse.requiresEscalation) {
-          logger.info('Escalation required, updating session state', {
+          logger.warn('Post-processor detected escalation need (edge case)', {
             sessionId: session.id,
             currentState: session.state,
+            note: 'This should be rare - most escalations caught earlier',
           });
           
           // Update session state to WAITING_AGENT
           session.state = ConversationState.WAITING_AGENT;
           
-          // TODO: Notify agent via notification system (Phase 4)
-          logger.info('Agent notification would be sent here (to be implemented in Phase 4)', {
-            sessionId: session.id,
-            customerId: session.customerId,
-            agentId: session.agentId,
-          });
+          // Try to execute handoff
+          try {
+            const escalationDetection = {
+              shouldEscalate: true,
+              trigger: EscalationTrigger.COMPLEX_QUERY,
+              confidence: 0.8,
+              reason: 'Post-processor detected escalation need',
+              customerMessage: message.content,
+            };
+            await escalationHandoffService.executeHandoff(session, escalationDetection);
+          } catch (error) {
+            logger.error('Failed to execute post-processor escalation handoff', {
+              error: error instanceof Error ? error.message : 'Unknown error',
+            });
+          }
         }
 
         // PERFORMANCE FIX: Single Redis write with all changes

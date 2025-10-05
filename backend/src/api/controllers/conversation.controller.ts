@@ -18,6 +18,8 @@ import { AuthenticatedRequest } from '../../types/auth';
 import { prisma } from '../../config/prisma-client';
 import { sessionManager } from '../../services/session/session-manager.service';
 import { ConversationState } from '../../services/session/types';
+import { whatsappService } from '../../services/whatsapp/whatsapp.service';
+import { escalationHandoffService } from '../../services/escalation';
 import { ErrorResponse, paginate } from '../../utils';
 import {
   ListConversationsQuery,
@@ -28,6 +30,8 @@ import {
   ReleaseConversationParams,
   ExportConversationParams,
   ExportConversationQuery,
+  SendMessageAsAgentParams,
+  SendMessageAsAgentBody,
 } from '../validators/conversation.validators';
 
 const logger = createServiceLogger('ConversationController');
@@ -225,8 +229,17 @@ export const takeoverConversation = async (
       });
     }
 
-    // TODO: Send notification to WhatsApp customer (Phase 4)
-    // "An agent will take over this conversation shortly"
+    // Task 4.5: Notify customer about takeover
+    try {
+      const customerMessage = 'Thank you! One of our team members will respond to you shortly. 👨‍💼';
+      await whatsappService.sendTextMessage(conversation.customerPhone, customerMessage);
+      logger.info('Customer notified about takeover', { conversationId: id });
+    } catch (notifError) {
+      logger.warn('Failed to notify customer about takeover', {
+        conversationId: id,
+        error: notifError instanceof Error ? notifError.message : 'Unknown error',
+      });
+    }
 
     logger.info('Conversation takeover successful', { agentId, conversationId: id });
 
@@ -345,34 +358,14 @@ export const releaseConversation = async (
       return ErrorResponse.badRequest(res, 'Conversation is not under agent control');
     }
 
-    // Update conversation status back to ACTIVE
-    const updatedConversation = await prisma.conversation.update({
+    // Task 4.5, Subtask 3: Use escalation handoff service to resume AI control
+    // This handles: updating status, session state, and customer notification
+    await escalationHandoffService.resumeAIControl(id, agentId);
+
+    // Get updated conversation
+    const updatedConversation = await prisma.conversation.findUnique({
       where: { id },
-      data: {
-        status: 'active',
-        lastActivityAt: new Date(),
-      },
     });
-
-    // Try to update Redis session back to ACTIVE if exists
-    try {
-      const session = await sessionManager.getSession(conversation.customerPhone);
-      if (session) {
-        await sessionManager.updateState(session, ConversationState.ACTIVE);
-        logger.info('Session state updated back to ACTIVE', {
-          conversationId: id,
-          sessionId: session.id,
-        });
-      }
-    } catch (sessionError) {
-      logger.warn('Could not update session state', {
-        conversationId: id,
-        error: sessionError instanceof Error ? sessionError.message : 'Unknown error',
-      });
-    }
-
-    // TODO: Send notification to WhatsApp customer (Phase 4)
-    // "AI assistant has resumed handling your conversation"
 
     logger.info('Conversation released successfully, AI resumed control', { agentId, conversationId: id });
 
@@ -495,6 +488,131 @@ export const exportConversation = async (
     });
   } catch (error) {
     return ErrorResponse.send(res, error, 'Failed to export conversation', 500, {
+      agentId: req.user.id,
+      conversationId: req.params.id,
+    });
+  }
+};
+
+/**
+ * Send message as agent
+ * POST /api/conversations/:id/send-message
+ * Task 4.5 Fix #1: Allow agents to respond via portal (plan line 1088)
+ */
+export const sendMessageAsAgent = async (
+  req: AuthenticatedRequest<SendMessageAsAgentParams, {}, SendMessageAsAgentBody>,
+  res: Response
+): Promise<void> => {
+  try {
+    const agentId = req.user.id;
+    const { id } = req.params;
+    const { message } = req.body;
+
+    logger.info('Agent sending message', {
+      agentId,
+      conversationId: id,
+      messageLength: message.length,
+    });
+
+    // Get conversation
+    const conversation = await prisma.conversation.findFirst({
+      where: { id, agentId },
+    });
+
+    if (!conversation) {
+      return ErrorResponse.notFound(res, 'Conversation not found');
+    }
+
+    // Conversation must be in waiting_agent or active state
+    if (conversation.status !== 'waiting_agent' && conversation.status !== 'active') {
+      return ErrorResponse.badRequest(
+        res,
+        'Cannot send message in current conversation state'
+      );
+    }
+
+    // Send message to customer via WhatsApp
+    try {
+      await whatsappService.sendTextMessage(conversation.customerPhone, message);
+    } catch (whatsappError) {
+      logger.error('Failed to send message via WhatsApp', {
+        error: whatsappError instanceof Error ? whatsappError.message : 'Unknown error',
+        conversationId: id,
+      });
+      return ErrorResponse.send(
+        res,
+        whatsappError,
+        'Failed to send message to customer',
+        500
+      );
+    }
+
+    // Store message in database
+    const savedMessage = await prisma.message.create({
+      data: {
+        conversationId: id,
+        role: 'agent',
+        content: message,
+        messageType: 'text',
+        metadata: {
+          sentViaPortal: true,
+          agentId,
+        },
+      },
+    });
+
+    // Update conversation last activity
+    await prisma.conversation.update({
+      where: { id },
+      data: {
+        lastActivityAt: new Date(),
+      },
+    });
+
+    // Update session if active
+    try {
+      const session = await sessionManager.getSession(conversation.customerPhone);
+      if (session) {
+        // Add agent message to session history
+        session.context.messageHistory.push({
+          role: 'agent',
+          content: message,
+          timestamp: new Date(),
+          messageId: savedMessage.id,
+          type: 'text',
+        });
+
+        await sessionManager.updateSession(session);
+
+        logger.info('Session updated with agent message', {
+          sessionId: session.id,
+          conversationId: id,
+        });
+      }
+    } catch (sessionError) {
+      logger.warn('Could not update session with agent message', {
+        conversationId: id,
+        error: sessionError instanceof Error ? sessionError.message : 'Unknown error',
+      });
+      // Don't fail the request if session update fails
+    }
+
+    logger.info('Agent message sent successfully', {
+      agentId,
+      conversationId: id,
+      messageId: savedMessage.id,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Message sent successfully',
+      data: {
+        messageId: savedMessage.id,
+        sentAt: savedMessage.createdAt,
+      },
+    });
+  } catch (error) {
+    return ErrorResponse.send(res, error, 'Failed to send message', 500, {
       agentId: req.user.id,
       conversationId: req.params.id,
     });

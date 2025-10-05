@@ -12,6 +12,8 @@ import { createServiceLogger } from '../../utils/logger';
 import { LeadScore, LeadQuality } from '../lead/lead-scoring-types';
 import { ConversationSession } from '../session/types';
 import { prisma } from '../../config/prisma-client';
+import { whatsappService } from '../whatsapp/whatsapp.service';
+import { emailService, emailTemplateService } from '../email';
 
 const logger = createServiceLogger('LeadNotificationService');
 
@@ -126,6 +128,7 @@ export class LeadNotificationService {
   /**
    * Send immediate notification for hot leads
    * Task 4.1, Subtask 3: Line 946 - "Hot leads → Immediate notification to agent"
+   * Task 4.5 Fix #2: Actually send notifications instead of just logging
    * 
    * FIX #1: Removed duplicate database update - caller handles storage
    */
@@ -158,22 +161,136 @@ export class LeadNotificationService {
         },
       });
 
-      // TODO: Phase 4 - Implement actual notification delivery
-      // For now, we log the notification
-      // In production, this would:
-      // 1. Send WhatsApp message to agent
-      // 2. Send email notification
-      // 3. Create in-app notification
-      // 4. Optionally send SMS for critical leads
-
-      logger.warn('Hot lead notification logged (actual delivery not yet implemented)', {
-        leadId: notification.leadId,
-        agentId: notification.agentId,
-        qualityTransition: previousQuality ? `${previousQuality} → hot` : 'new → hot',
-        message: `🔥 Hot Lead Alert!\n\nScore: ${notification.leadScore}/100\n${notification.scoreExplanation}\n\nCustomer: ${notification.customerPhone}\n${notification.conversationSnippet}`,
+      // Get agent details for notification
+      const agent = await prisma.agent.findUnique({
+        where: { id: notification.agentId },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          whatsappNumber: true,
+        },
       });
 
-      // FIX #1: Removed storeNotificationForPortal() - caller handles storage
+      if (!agent) {
+        logger.error('Agent not found for hot lead notification', {
+          agentId: notification.agentId,
+        });
+        return;
+      }
+
+      // 1. Send WhatsApp notification to agent
+      if (agent.whatsappNumber) {
+        try {
+          const whatsappMessage = `🔥 *Hot Lead Alert!*
+
+*Score:* ${notification.leadScore}/100
+*Customer:* ${notification.customerPhone}
+*Quality Transition:* ${previousQuality ? `${previousQuality} → hot` : 'new → hot'}
+
+*Score Breakdown:*
+${notification.scoreExplanation}
+
+*Recent Conversation:*
+${notification.conversationSnippet}
+
+*Action:* Please reach out to this customer immediately!
+
+View in portal: ${process.env.APP_BASE_URL || 'http://localhost:3000'}/conversations`;
+
+          await whatsappService.sendTextMessage(agent.whatsappNumber, whatsappMessage);
+          
+          logger.info('WhatsApp notification sent for hot lead', {
+            agentId: agent.id,
+            leadId: notification.leadId,
+          });
+        } catch (whatsappError) {
+          logger.error('Failed to send WhatsApp notification for hot lead', {
+            error: whatsappError instanceof Error ? whatsappError.message : 'Unknown error',
+            agentId: agent.id,
+          });
+        }
+      }
+
+      // 2. Send email notification
+      if (agent.email && emailService.isConfigured()) {
+        try {
+          // Use centralized email template service (Task 4.5 Refactor)
+          const scoreBadge = `<div style="text-align: center; margin: 20px 0;"><span class="score-badge">Score: ${notification.leadScore}/100</span></div>`;
+          
+          const emailHtml = emailTemplateService.generateEmail({
+            title: '🔥 Hot Lead Alert!',
+            subtitle: 'Immediate Action Required',
+            headerColor: '#ef4444',
+            infoSections: [
+              { label: 'Customer', value: notification.customerPhone },
+              { label: 'Quality Transition', value: previousQuality ? `${previousQuality} → hot` : 'new → hot' },
+              { label: 'Time', value: new Date(notification.timestamp).toLocaleString() },
+            ],
+            contentSections: [
+              {
+                content: scoreBadge,
+              },
+              {
+                heading: '📊 Score Breakdown',
+                content: notification.scoreExplanation.replace(/\n/g, '<br>'),
+              },
+              {
+                heading: '💬 Recent Conversation',
+                content: `<div class="conversation">${notification.conversationSnippet}</div>`,
+              },
+            ],
+            cta: {
+              text: 'View in Portal →',
+              url: `${process.env.APP_BASE_URL || 'http://localhost:3000'}/conversations`,
+            },
+            actionNote: 'This is a high-priority lead. Please reach out to the customer immediately to maximize conversion chances.',
+            customStyles: emailTemplateService.getCustomStyles({
+              includeScoreBadge: true,
+              includeConversationStyle: true,
+            }),
+          });
+
+          await emailService.sendEmail({
+            to: agent.email,
+            subject: `🔥 Hot Lead Alert - ${notification.customerPhone} (Score: ${notification.leadScore}/100)`,
+            html: emailHtml,
+          });
+
+          logger.info('Email notification sent for hot lead', {
+            agentId: agent.id,
+            leadId: notification.leadId,
+          });
+        } catch (emailError) {
+          logger.error('Failed to send email notification for hot lead', {
+            error: emailError instanceof Error ? emailError.message : 'Unknown error',
+            agentId: agent.id,
+          });
+        }
+      }
+
+      // 3. Create in-app notification
+      await prisma.analyticsEvent.create({
+        data: {
+          agentId: notification.agentId,
+          eventType: 'hot_lead_notification',
+          eventData: {
+            leadId: notification.leadId,
+            customerPhone: notification.customerPhone,
+            leadScore: notification.leadScore,
+            scoreExplanation: notification.scoreExplanation,
+            conversationSnippet: notification.conversationSnippet,
+            timestamp: notification.timestamp.toISOString(),
+            read: false,
+            urgency: 'immediate',
+          },
+        },
+      });
+
+      logger.info('Hot lead notification sent successfully', {
+        leadId: notification.leadId,
+        agentId: notification.agentId,
+      });
 
     } catch (error) {
       logger.error('Failed to send immediate notification', {

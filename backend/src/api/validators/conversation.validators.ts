@@ -79,6 +79,20 @@ export const ExportConversationSchema = z.object({
 });
 
 /**
+ * Send message as agent schema
+ * POST /api/conversations/:id/send-message
+ * Task 4.5 Fix #1: Agent can respond via portal
+ */
+export const SendMessageAsAgentSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('Invalid conversation ID'),
+  }),
+  body: z.object({
+    message: z.string().min(1, 'Message cannot be empty').max(4096, 'Message too long'),
+  }),
+});
+
+/**
  * Type inference for validated data
  */
 export type ListConversationsQuery = z.infer<typeof ListConversationsSchema>['query'];
@@ -89,5 +103,7 @@ export type CloseConversationBody = z.infer<typeof CloseConversationSchema>['bod
 export type ReleaseConversationParams = z.infer<typeof ReleaseConversationSchema>['params'];
 export type ExportConversationParams = z.infer<typeof ExportConversationSchema>['params'];
 export type ExportConversationQuery = z.infer<typeof ExportConversationSchema>['query'];
+export type SendMessageAsAgentParams = z.infer<typeof SendMessageAsAgentSchema>['params'];
+export type SendMessageAsAgentBody = z.infer<typeof SendMessageAsAgentSchema>['body'];
 
 

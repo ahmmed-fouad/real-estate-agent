@@ -13,6 +13,7 @@
 import { createServiceLogger } from '../../utils/logger';
 import { analyticsService } from './analytics.service';
 import { prisma } from '../../config/prisma-client';
+import { emailTemplateService } from '../email';
 import ExcelJS from 'exceljs';
 import PDFDocument from 'pdfkit';
 
@@ -565,83 +566,59 @@ export class ReportGeneratorService {
   /**
    * Generate report summary for email
    * Used for daily/weekly email reports
+   * Task 4.5 Refactor: Use centralized template service
    */
   generateEmailSummary(reportData: ReportData): string {
     const { conversationMetrics, leadMetrics, summary } = reportData;
 
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-  <style>
-    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-    .header { background: #4F46E5; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
-    .content { background: #f9fafb; padding: 20px; border-radius: 0 0 8px 8px; }
-    .metric-box { background: white; padding: 15px; margin: 10px 0; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .metric-title { font-size: 14px; color: #6B7280; margin-bottom: 5px; }
-    .metric-value { font-size: 24px; font-weight: bold; color: #1F2937; }
-    .section-title { font-size: 18px; font-weight: bold; margin: 20px 0 10px 0; color: #1F2937; }
-    .footer { text-align: center; margin-top: 20px; padding-top: 20px; border-top: 1px solid #E5E7EB; color: #6B7280; font-size: 12px; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>${reportData.title}</h1>
-      <p>${new Date(reportData.period.startDate).toLocaleDateString()} - ${new Date(reportData.period.endDate).toLocaleDateString()}</p>
-    </div>
-    <div class="content">
+    // Build metric boxes HTML
+    const keyMetrics = `
       <div class="section-title">📊 Key Metrics</div>
-      
-      <div class="metric-box">
-        <div class="metric-title">Total Conversations</div>
-        <div class="metric-value">${summary.totalConversations}</div>
-      </div>
-      
-      <div class="metric-box">
-        <div class="metric-title">New Leads</div>
-        <div class="metric-value">${summary.totalLeads}</div>
-      </div>
-      
-      <div class="metric-box">
-        <div class="metric-title">Scheduled Viewings</div>
-        <div class="metric-value">${summary.totalViewings}</div>
-      </div>
-      
-      <div class="metric-box">
-        <div class="metric-title">Conversion Rate</div>
-        <div class="metric-value">${summary.conversionRate}%</div>
-      </div>
-      
-      <div class="metric-box">
-        <div class="metric-title">Average Response Time</div>
-        <div class="metric-value">${summary.avgResponseTime}s</div>
-      </div>
+      <div class="metric-box"><div class="metric-title">Total Conversations</div><div class="metric-value">${summary.totalConversations}</div></div>
+      <div class="metric-box"><div class="metric-title">New Leads</div><div class="metric-value">${summary.totalLeads}</div></div>
+      <div class="metric-box"><div class="metric-title">Scheduled Viewings</div><div class="metric-value">${summary.totalViewings}</div></div>
+      <div class="metric-box"><div class="metric-title">Conversion Rate</div><div class="metric-value">${summary.conversionRate}%</div></div>
+      <div class="metric-box"><div class="metric-title">Average Response Time</div><div class="metric-value">${summary.avgResponseTime}s</div></div>
+    `;
 
+    const conversationInsights = `
       <div class="section-title">💬 Conversation Insights</div>
       <div class="metric-box">
         <p>📈 Resolution Rate: <strong>${conversationMetrics.resolutionRate}%</strong></p>
         <p>⚠️ Escalation Rate: <strong>${conversationMetrics.escalationRate}%</strong></p>
         <p>💬 Avg Messages: <strong>${conversationMetrics.conversationLength}</strong></p>
       </div>
+    `;
 
+    const leadQuality = `
       <div class="section-title">🎯 Lead Quality</div>
       <div class="metric-box">
         <p>🔥 Hot: <strong>${leadMetrics.leadQualityDistribution.hot || 0}</strong></p>
         <p>🌡️ Warm: <strong>${leadMetrics.leadQualityDistribution.warm || 0}</strong></p>
         <p>❄️ Cold: <strong>${leadMetrics.leadQualityDistribution.cold || 0}</strong></p>
       </div>
+    `;
 
-      <div class="footer">
-        <p>Generated on ${new Date(reportData.generatedAt).toLocaleString()}</p>
-        <p>WhatsApp Real Estate AI - Analytics Report</p>
-      </div>
-    </div>
-  </div>
-</body>
-</html>
-    `.trim();
+    // Custom styles for report metrics
+    const customStyles = `
+      .metric-box { background: white; padding: 15px; margin: 10px 0; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+      .metric-title { font-size: 14px; color: #6B7280; margin-bottom: 5px; }
+      .metric-value { font-size: 24px; font-weight: bold; color: #1F2937; }
+      .section-title { font-size: 18px; font-weight: bold; margin: 20px 0 10px 0; color: #1F2937; }
+    `;
+
+    return emailTemplateService.generateEmail({
+      title: reportData.title,
+      subtitle: `${new Date(reportData.period.startDate).toLocaleDateString()} - ${new Date(reportData.period.endDate).toLocaleDateString()}`,
+      headerColor: '#4F46E5',
+      contentSections: [
+        { content: keyMetrics },
+        { content: conversationInsights },
+        { content: leadQuality },
+      ],
+      footerText: `Generated on ${new Date(reportData.generatedAt).toLocaleString()}\nWhatsApp Real Estate AI - Analytics Report`,
+      customStyles,
+    });
   }
 
   /**
