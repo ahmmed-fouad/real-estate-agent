@@ -13,6 +13,7 @@ import {
   GetConversationSchema,
   TakeoverConversationSchema,
   CloseConversationSchema,
+  ReleaseConversationSchema,
   ExportConversationSchema,
 } from '../validators/conversation.validators';
 
@@ -220,6 +221,45 @@ router.post(
   '/:id/close',
   validate(CloseConversationSchema),
   conversationController.closeConversation
+);
+
+/**
+ * @swagger
+ * /api/conversations/{id}/release:
+ *   post:
+ *     summary: Release conversation (return control to AI)
+ *     description: Transfers conversation control back from agent to AI assistant
+ *     tags: [Conversation Management]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Control returned to AI successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Conversation is not under agent control
+ *       404:
+ *         description: Conversation not found
+ */
+router.post(
+  '/:id/release',
+  validate(ReleaseConversationSchema),
+  conversationController.releaseConversation
 );
 
 /**

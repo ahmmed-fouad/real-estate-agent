@@ -56,6 +56,16 @@ export const CloseConversationSchema = z.object({
 });
 
 /**
+ * Release conversation schema
+ * POST /api/conversations/:id/release
+ */
+export const ReleaseConversationSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('Invalid conversation ID'),
+  }),
+});
+
+/**
  * Export conversation schema
  * GET /api/conversations/:id/export
  */
@@ -76,6 +86,7 @@ export type GetConversationParams = z.infer<typeof GetConversationSchema>['param
 export type TakeoverConversationParams = z.infer<typeof TakeoverConversationSchema>['params'];
 export type CloseConversationParams = z.infer<typeof CloseConversationSchema>['params'];
 export type CloseConversationBody = z.infer<typeof CloseConversationSchema>['body'];
+export type ReleaseConversationParams = z.infer<typeof ReleaseConversationSchema>['params'];
 export type ExportConversationParams = z.infer<typeof ExportConversationSchema>['params'];
 export type ExportConversationQuery = z.infer<typeof ExportConversationSchema>['query'];
 

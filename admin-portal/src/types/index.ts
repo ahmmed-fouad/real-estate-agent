@@ -198,6 +198,13 @@ export interface PropertyMetrics {
   conversions: number;
 }
 
+export interface InquiryTopic {
+  topic: string;
+  label: string;
+  count: number;
+  percentage: number;
+}
+
 // Auth Types
 export interface LoginCredentials {
   email: string;

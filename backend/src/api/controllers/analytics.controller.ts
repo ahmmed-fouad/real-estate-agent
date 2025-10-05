@@ -21,6 +21,7 @@ import {
   ConversationAnalyticsQuery,
   LeadAnalyticsQuery,
   PropertyAnalyticsQuery,
+  InquiryTopicsQuery,
 } from '../validators/analytics.validators';
 
 const logger = createServiceLogger('AnalyticsController');
@@ -505,6 +506,106 @@ export const getPropertyAnalytics = async (
     return ErrorResponse.send(res, error, 'Failed to retrieve property analytics', 500, { agentId: req.user.id });
   }
 };
+
+/**
+ * Get customer inquiry topics
+ * GET /api/analytics/topics
+ * As per plan Task 3.2 line 818 - "Customer inquiry topics"
+ */
+export const getInquiryTopics = async (
+  req: AuthenticatedRequest<{}, {}, {}, InquiryTopicsQuery>,
+  res: Response
+): Promise<void> => {
+  try {
+    const agentId = req.user.id;
+    const { startDate, endDate } = req.query;
+
+    logger.info('Inquiry topics analytics request', { agentId, startDate, endDate });
+
+    // Build date filter
+    const dateFilter: any = {};
+    if (startDate) {
+      dateFilter.gte = new Date(startDate);
+    }
+    if (endDate) {
+      dateFilter.lte = new Date(endDate);
+    }
+
+    // Get all messages with intents within date range
+    const messages = await prisma.message.findMany({
+      where: {
+        conversation: {
+          agentId,
+          ...(startDate || endDate ? { startedAt: dateFilter } : {}),
+        },
+        role: 'user', // Only customer messages
+        intent: {
+          not: null,
+        },
+      },
+      select: {
+        intent: true,
+      },
+    });
+
+    // Count intents
+    const intentCounts: Record<string, number> = {};
+    let totalIntents = 0;
+
+    messages.forEach((message) => {
+      if (message.intent) {
+        intentCounts[message.intent] = (intentCounts[message.intent] || 0) + 1;
+        totalIntents++;
+      }
+    });
+
+    // Convert to topics array with percentages
+    const topics = Object.entries(intentCounts)
+      .map(([intent, count]) => ({
+        topic: intent,
+        label: formatIntentLabel(intent),
+        count,
+        percentage: totalIntents > 0 ? Math.round((count / totalIntents) * 100) : 0,
+      }))
+      .sort((a, b) => b.count - a.count); // Sort by count descending
+
+    logger.info('Inquiry topics retrieved', {
+      agentId,
+      totalTopics: topics.length,
+      totalIntents,
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        topics,
+        totalIntents,
+      },
+    });
+  } catch (error) {
+    return ErrorResponse.send(res, error, 'Failed to retrieve inquiry topics', 500, { agentId: req.user.id });
+  }
+};
+
+/**
+ * Helper function to format intent labels for display
+ */
+function formatIntentLabel(intent: string): string {
+  const labels: Record<string, string> = {
+    PROPERTY_INQUIRY: 'Property Inquiries',
+    PRICE_INQUIRY: 'Price Questions',
+    PAYMENT_PLANS: 'Payment Plans',
+    LOCATION_INFO: 'Location Information',
+    SCHEDULE_VIEWING: 'Schedule Viewings',
+    COMPARISON: 'Property Comparisons',
+    GENERAL_QUESTION: 'General Questions',
+    COMPLAINT: 'Complaints',
+    AGENT_REQUEST: 'Agent Requests',
+    GREETING: 'Greetings',
+    GOODBYE: 'Farewells',
+  };
+  return labels[intent] || intent;
+}
 
 /**
  * Helper: Group conversations by time period

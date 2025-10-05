@@ -149,6 +149,22 @@ export class ErrorResponse {
       details,
     });
   }
+
+  /**
+   * Send bad request error response
+   */
+  static badRequest(
+    res: Response,
+    message: string = 'Bad request'
+  ): void {
+    logger.warn('Bad request', { message });
+
+    res.status(400).json({
+      success: false,
+      error: 'Bad request',
+      message,
+    });
+  }
 }
 
 

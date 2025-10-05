@@ -81,6 +81,24 @@ export const analyticsService = {
   },
 
   /**
+   * Get customer inquiry topics
+   */
+  async getInquiryTopics(params?: {
+    startDate?: string;
+    endDate?: string;
+  }): Promise<{ topics: import('@/types').InquiryTopic[]; totalIntents: number }> {
+    try {
+      const response = await apiClient.get<{
+        topics: import('@/types').InquiryTopic[];
+        totalIntents: number;
+      }>('/analytics/topics', { params });
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  },
+
+  /**
    * Export analytics report
    */
   async exportReport(params: {

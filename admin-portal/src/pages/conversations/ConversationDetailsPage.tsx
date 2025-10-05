@@ -130,6 +130,19 @@ const ConversationDetailsPage = () => {
     }
   };
 
+  const handleRelease = async () => {
+    if (!id) return;
+
+    try {
+      await conversationService.releaseConversation(id);
+      setIsTakenOver(false);
+      toast.success('Control returned to AI successfully');
+      loadConversation(id);
+    } catch (error) {
+      toast.error('Failed to release conversation');
+    }
+  };
+
   const handleClose = async () => {
     if (!id) return;
 
@@ -207,9 +220,14 @@ const ConversationDetailsPage = () => {
             </Button>
           )}
           {isTakenOver && (
-            <Button variant="outline" onClick={handleClose}>
-              Close
-            </Button>
+            <div className="flex space-x-3">
+              <Button variant="outline" onClick={handleRelease}>
+                Return to AI
+              </Button>
+              <Button variant="outline" onClick={handleClose}>
+                Close
+              </Button>
+            </div>
           )}
         </div>
       </div>

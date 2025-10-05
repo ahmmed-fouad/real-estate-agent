@@ -30,6 +30,7 @@ import {
   ConversationMetrics,
   LeadMetrics,
   PropertyMetrics,
+  InquiryTopic,
 } from '@/types';
 import { formatNumber, downloadFile } from '@/lib/utils';
 
@@ -40,6 +41,7 @@ const AnalyticsPage = () => {
   const [conversationMetrics, setConversationMetrics] = useState<ConversationMetrics[]>([]);
   const [leadMetrics, setLeadMetrics] = useState<LeadMetrics[]>([]);
   const [propertyMetrics, setPropertyMetrics] = useState<PropertyMetrics[]>([]);
+  const [inquiryTopics, setInquiryTopics] = useState<InquiryTopic[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
 
@@ -60,17 +62,19 @@ const AnalyticsPage = () => {
   const loadAnalytics = async () => {
     setIsLoading(true);
     try {
-      const [overviewData, conversationData, leadData, propertyData] = await Promise.all([
+      const [overviewData, conversationData, leadData, propertyData, topicsData] = await Promise.all([
         analyticsService.getOverview({ startDate, endDate }),
         analyticsService.getConversationMetrics({ startDate, endDate, groupBy: 'day' }),
         analyticsService.getLeadMetrics({ startDate, endDate, groupBy: 'day' }),
         analyticsService.getPropertyMetrics({ startDate, endDate, limit: 10 }),
+        analyticsService.getInquiryTopics({ startDate, endDate }),
       ]);
 
       setOverview(overviewData);
       setConversationMetrics(conversationData);
       setLeadMetrics(leadData);
       setPropertyMetrics(propertyData);
+      setInquiryTopics(topicsData.topics);
     } catch (error) {
       toast.error('Failed to load analytics');
       console.error('Analytics error:', error);
@@ -448,7 +452,57 @@ const AnalyticsPage = () => {
         </Card>
       </div>
 
-      {/* Customer Inquiry Topics (if data available) */}
+      {/* Customer Inquiry Topics */}
+      {inquiryTopics.length > 0 && (
+        <Card variant="bordered" className="p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Customer Inquiry Topics</h2>
+          <ResponsiveContainer width="100%" height={350}>
+            <PieChart>
+              <Pie
+                data={inquiryTopics}
+                cx="50%"
+                cy="50%"
+                labelLine={false}
+                label={({ label, percentage }) => `${label}: ${percentage}%`}
+                outerRadius={120}
+                fill="#8884d8"
+                dataKey="count"
+                nameKey="label"
+              >
+                {inquiryTopics.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+          
+          {/* Topics List */}
+          <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+            {inquiryTopics.map((topic, index) => (
+              <div
+                key={topic.topic}
+                className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+              >
+                <div className="flex items-center space-x-3">
+                  <div
+                    className="w-4 h-4 rounded"
+                    style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                  />
+                  <span className="text-sm font-medium text-gray-900">{topic.label}</span>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-bold text-gray-900">{topic.count}</p>
+                  <p className="text-xs text-gray-500">{topic.percentage}%</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Summary Statistics */}
       {overview && (
         <Card variant="bordered" className="p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Summary Statistics</h2>

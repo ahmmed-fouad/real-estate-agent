@@ -13,6 +13,7 @@ import {
   ConversationAnalyticsSchema,
   LeadAnalyticsSchema,
   PropertyAnalyticsSchema,
+  InquiryTopicsSchema,
 } from '../validators/analytics.validators';
 
 const router = Router();
@@ -226,6 +227,61 @@ router.get(
   '/properties',
   validate(PropertyAnalyticsSchema),
   analyticsController.getPropertyAnalytics
+);
+
+/**
+ * @swagger
+ * /api/analytics/topics:
+ *   get:
+ *     summary: Get customer inquiry topics
+ *     description: Retrieves breakdown of customer inquiry topics/intents
+ *     tags: [Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *     responses:
+ *       200:
+ *         description: Inquiry topics retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     topics:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           topic:
+ *                             type: string
+ *                           label:
+ *                             type: string
+ *                           count:
+ *                             type: number
+ *                           percentage:
+ *                             type: number
+ *                     totalIntents:
+ *                       type: number
+ */
+router.get(
+  '/topics',
+  validate(InquiryTopicsSchema),
+  analyticsController.getInquiryTopics
 );
 
 export default router;

@@ -25,6 +25,7 @@ import {
   TakeoverConversationParams,
   CloseConversationParams,
   CloseConversationBody,
+  ReleaseConversationParams,
   ExportConversationParams,
   ExportConversationQuery,
 } from '../validators/conversation.validators';
@@ -309,6 +310,79 @@ export const closeConversation = async (
     });
   } catch (error) {
     return ErrorResponse.send(res, error, 'Failed to close conversation', 500, {
+      agentId: req.user.id,
+      conversationId: req.params.id,
+    });
+  }
+};
+
+/**
+ * Release conversation (return control to AI)
+ * POST /api/conversations/:id/release
+ * As per plan Task 3.2 line 809 - "Return control to AI"
+ */
+export const releaseConversation = async (
+  req: AuthenticatedRequest<ReleaseConversationParams>,
+  res: Response
+): Promise<void> => {
+  try {
+    const agentId = req.user.id;
+    const { id } = req.params;
+
+    logger.info('Conversation release attempt', { agentId, conversationId: id });
+
+    // Get conversation
+    const conversation = await prisma.conversation.findFirst({
+      where: { id, agentId },
+    });
+
+    if (!conversation) {
+      return ErrorResponse.notFound(res, 'Conversation not found');
+    }
+
+    // Can only release conversations that are in waiting_agent status
+    if (conversation.status !== 'waiting_agent') {
+      return ErrorResponse.badRequest(res, 'Conversation is not under agent control');
+    }
+
+    // Update conversation status back to ACTIVE
+    const updatedConversation = await prisma.conversation.update({
+      where: { id },
+      data: {
+        status: 'active',
+        lastActivityAt: new Date(),
+      },
+    });
+
+    // Try to update Redis session back to ACTIVE if exists
+    try {
+      const session = await sessionManager.getSession(conversation.customerPhone);
+      if (session) {
+        await sessionManager.updateState(session, ConversationState.ACTIVE);
+        logger.info('Session state updated back to ACTIVE', {
+          conversationId: id,
+          sessionId: session.id,
+        });
+      }
+    } catch (sessionError) {
+      logger.warn('Could not update session state', {
+        conversationId: id,
+        error: sessionError instanceof Error ? sessionError.message : 'Unknown error',
+      });
+    }
+
+    // TODO: Send notification to WhatsApp customer (Phase 4)
+    // "AI assistant has resumed handling your conversation"
+
+    logger.info('Conversation released successfully, AI resumed control', { agentId, conversationId: id });
+
+    res.status(200).json({
+      success: true,
+      message: 'Control returned to AI successfully',
+      data: { conversation: updatedConversation },
+    });
+  } catch (error) {
+    return ErrorResponse.send(res, error, 'Failed to release conversation', 500, {
       agentId: req.user.id,
       conversationId: req.params.id,
     });

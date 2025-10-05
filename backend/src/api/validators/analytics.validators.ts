@@ -49,11 +49,23 @@ export const PropertyAnalyticsSchema = z.object({
 });
 
 /**
+ * Inquiry topics analytics schema
+ * GET /api/analytics/topics
+ */
+export const InquiryTopicsSchema = z.object({
+  query: z.object({
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  }),
+});
+
+/**
  * Type inference for validated data
  */
 export type AnalyticsOverviewQuery = z.infer<typeof AnalyticsOverviewSchema>['query'];
 export type ConversationAnalyticsQuery = z.infer<typeof ConversationAnalyticsSchema>['query'];
 export type LeadAnalyticsQuery = z.infer<typeof LeadAnalyticsSchema>['query'];
 export type PropertyAnalyticsQuery = z.infer<typeof PropertyAnalyticsSchema>['query'];
+export type InquiryTopicsQuery = z.infer<typeof InquiryTopicsSchema>['query'];
 
 

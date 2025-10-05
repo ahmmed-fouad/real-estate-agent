@@ -61,6 +61,17 @@ export const conversationService = {
   },
 
   /**
+   * Release conversation (return control to AI)
+   */
+  async releaseConversation(id: string): Promise<void> {
+    try {
+      await apiClient.post(`/conversations/${id}/release`);
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  },
+
+  /**
    * Export conversation transcript
    */
   async exportConversation(
