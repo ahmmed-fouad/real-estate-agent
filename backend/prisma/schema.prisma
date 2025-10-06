@@ -29,6 +29,7 @@ model Agent {
   conversations   Conversation[]
   scheduledViewings ScheduledViewing[]
   analyticsEvents AnalyticsEvent[]
+  documents       Document[]
 
   @@map("agents")
 }
@@ -86,6 +87,7 @@ model Property {
   agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
   paymentPlans    PaymentPlan[]
   scheduledViewings ScheduledViewing[]
+  relatedDocuments Document[]
 
   @@index([agentId])
   @@map("properties")
@@ -211,5 +213,49 @@ model ScheduledViewing {
   agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@map("scheduled_viewings")
+}
+
+// Documents Table - For RAG knowledge base
+model Document {
+  id              String   @id @default(uuid())
+  agentId         String   @map("agent_id")
+  propertyId      String?  @map("property_id")
+  
+  // Document metadata
+  title           String
+  description     String?  @db.Text
+  documentType    String   @map("document_type") // brochure, floor_plan, contract, policy, faq, guide
+  category        String?  // property_info, legal, financial, company_info
+  
+  // File information
+  fileUrl         String   @map("file_url")
+  fileName        String   @map("file_name")
+  fileType        String   @map("file_type") // pdf, docx, txt, etc.
+  fileSize        Int      @map("file_size") // in bytes
+  
+  // Content for RAG
+  contentText     String?  @map("content_text") @db.Text // Extracted text content
+  contentChunks   Json?    @map("content_chunks") // Array of text chunks
+  
+  // Vector embeddings for search
+  embeddingText   String?  @map("embedding_text") @db.Text
+  embedding       Unsupported("vector(1536)")? // OpenAI embedding dimension
+  
+  // Metadata
+  tags            String[]
+  language        String   @default("en") // en, ar, mixed
+  isActive        Boolean  @default(true) @map("is_active")
+  
+  // Timestamps
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  property        Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+
+  @@index([agentId])
+  @@index([propertyId])
+  @@index([documentType])
+  @@map("documents")
 }
 
