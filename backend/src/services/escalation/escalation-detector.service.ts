@@ -11,7 +11,7 @@
  */
 
 import { createServiceLogger } from '../../utils/logger';
-import { openaiClient } from '../../config/openai-client';
+import { getOpenAIClient } from '../../config/openai-client';
 import { ConversationSession } from '../session/types';
 
 const logger = createServiceLogger('EscalationDetector');
@@ -321,6 +321,7 @@ Respond in JSON format:
   "reason": "brief explanation"
 }`;
 
+      const openaiClient = getOpenAIClient();
       const response = await openaiClient.chat.completions.create({
         model: process.env.OPENAI_MODEL || 'gpt-4',
         messages: [
@@ -402,6 +403,7 @@ Respond in JSON format:
   "reason": "brief explanation"
 }`;
 
+      const openaiClient = getOpenAIClient();
       const response = await openaiClient.chat.completions.create({
         model: process.env.OPENAI_MODEL || 'gpt-4',
         messages: [

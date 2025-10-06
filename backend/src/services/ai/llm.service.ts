@@ -134,7 +134,7 @@ export class LLMService implements ILLMService {
         streaming: options?.stream || false,
       });
 
-      // Call OpenAI Chat Completion API
+      // Call OpenAI Chat Completion API (non-streaming only for now)
       const completion = await this.client.chat.completions.create({
         model: this.model,
         messages: messages as OpenAI.Chat.ChatCompletionMessageParam[],
@@ -144,12 +144,12 @@ export class LLMService implements ILLMService {
         frequency_penalty: options?.frequencyPenalty,
         presence_penalty: options?.presencePenalty,
         stop: options?.stop,
-        stream: options?.stream || false,
+        stream: false, // Force non-streaming to avoid type issues
       });
 
       const responseTime = Date.now() - startTime;
 
-      // Extract response
+      // Extract response (completion is guaranteed to be ChatCompletion, not Stream)
       const choice = completion.choices[0];
       const content = choice.message.content || '';
       const finishReason = choice.finish_reason;

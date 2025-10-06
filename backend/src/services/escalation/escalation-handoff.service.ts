@@ -15,8 +15,8 @@ import { whatsappService } from '../whatsapp/whatsapp.service';
 import { sessionManager } from '../session/session-manager.service';
 import { prisma } from '../../config/prisma-client';
 import { ConversationState, ConversationSession } from '../session/types';
-import { openaiClient } from '../../config/openai-client';
-import { EscalationDetection, escalationDetectorService } from './escalation-detector.service';
+import { getOpenAIClient } from '../../config/openai-client';
+import { EscalationDetection } from './escalation-detector.service';
 import {
   EscalationNotificationData,
   escalationNotificationService,
@@ -189,6 +189,7 @@ ${JSON.stringify(extractedInfo, null, 2)}
 
 Keep it concise but comprehensive. Format in clear bullet points.`;
 
+      const openaiClient = getOpenAIClient();
       const response = await openaiClient.chat.completions.create({
         model: process.env.OPENAI_MODEL || 'gpt-4',
         messages: [
@@ -238,7 +239,7 @@ Keep it concise but comprehensive. Format in clear bullet points.`;
     summary += `**Messages Exchanged:** ${messageCount}\n\n`;
 
     if (extractedInfo.budget) {
-      summary += `**Budget:** ${extractedInfo.budget} ${extractedInfo.currency || 'EGP'}\n`;
+      summary += `**Budget:** ${extractedInfo.budget} EGP\n`;
     }
     if (extractedInfo.location) {
       summary += `**Location:** ${extractedInfo.location}\n`;
@@ -276,7 +277,7 @@ Keep it concise but comprehensive. Format in clear bullet points.`;
       });
 
       // Determine language preference
-      const language = session.context.languagePreference || 'en';
+      const language = session.context.languagePreference?.primary || 'en';
 
       // Prepare message based on escalation trigger
       let message: string;
@@ -393,9 +394,9 @@ Keep it concise but comprehensive. Format in clear bullet points.`;
             reason: escalation.reason,
             confidence: escalation.confidence,
             messageCount: session.context.messageHistory.length,
-            extractedInfo: session.context.extractedInfo,
+            extractedInfo: JSON.parse(JSON.stringify(session.context.extractedInfo)),
             timestamp: new Date().toISOString(),
-          },
+          } as any,
         },
       });
 
@@ -427,16 +428,14 @@ Keep it concise but comprehensive. Format in clear bullet points.`;
           status: 'active',
           lastActivityAt: new Date(),
           metadata: {
-            ...(
-              await prisma.conversation.findUnique({
-                where: { id: conversationId },
-                select: { metadata: true },
-              })
-            )?.metadata,
+            ...((await prisma.conversation.findUnique({
+              where: { id: conversationId },
+              select: { metadata: true },
+            }))?.metadata as any || {}),
             aiResumed: true,
             aiResumedAt: new Date().toISOString(),
             handledByAgent: agentId,
-          },
+          } as any,
         },
       });
 

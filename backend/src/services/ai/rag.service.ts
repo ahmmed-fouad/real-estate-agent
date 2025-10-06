@@ -15,6 +15,7 @@ import { embeddingService } from './embedding.service';
 import { textChunker } from './text-chunker.service';
 import { createServiceLogger } from '../../utils/logger';
 import { PriceFormatter } from '../../utils/price-formatter';
+import { arabicFormatterService } from '../language/arabic-formatter.service';
 import {
   IRAGService,
   PropertyDocument,

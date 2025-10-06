@@ -43,9 +43,12 @@ export interface ExtractedEntities {
   bathrooms?: number;
   minArea?: number;       // Minimum area in square meters
   maxArea?: number;       // Maximum area in square meters
+  area?: number;          // General area (for backward compatibility)
+  amenities?: string[];   // Desired amenities (e.g., pool, gym, parking)
 
   // Timeline and urgency
   deliveryTimeline?: string;  // e.g., "ready to move", "under construction"
+  deliveryDate?: string;      // Specific delivery date (for backward compatibility)
   urgency?: string;           // e.g., "urgent", "flexible", "just looking"
 
   // Payment preferences
