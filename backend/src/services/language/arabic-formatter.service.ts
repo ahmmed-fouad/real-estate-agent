@@ -42,11 +42,12 @@ export class ArabicFormatterService {
       return '';
     }
 
-    const options: Intl.DateTimeFormatOptions = {
+    const formatOptions: Record<string, Intl.DateTimeFormatOptions> = {
       short: { day: 'numeric', month: 'numeric', year: 'numeric' },
       long: { day: 'numeric', month: 'long', year: 'numeric' },
       full: { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' },
-    }[format];
+    };
+    const options = formatOptions[format];
 
     if (language === 'ar') {
       return date.toLocaleDateString('ar-EG', options);

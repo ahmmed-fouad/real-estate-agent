@@ -13,6 +13,7 @@ import { sessionManager } from '../session';
 import { ConversationState } from '../session/types';
 import { MessageQueueJob, MessageQueueResult } from './message-queue.service';
 import { llmService, promptBuilder, ragService, intentClassifier, entityExtractor, responsePostProcessor, Intent } from '../ai';
+import { unifiedRAGService } from '../ai/unified-rag.service';
 import { leadScoringService } from '../lead';
 import { leadNotificationService } from '../notification';
 import { languageDetectionService } from '../language';
@@ -462,8 +463,8 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
         // Use extracted entities for filtering property search
         const searchFilters = entityExtractor.extractSearchFilters(session.context.extractedInfo);
 
-        // Task 2.2 - Retrieve relevant documents (RAG) ✅ IMPLEMENTED
-        logger.info('Retrieving relevant properties with entity-based filters', {
+        // Task 2.2 - Retrieve relevant documents (RAG) ✅ ENHANCED with Unified RAG
+        logger.info('Retrieving relevant context with unified RAG (properties + documents)', {
           messageId: message.messageId,
           sessionId: session.id,
           agentId: session.agentId,
@@ -471,32 +472,35 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
           filters: searchFilters,
         });
 
-        // Retrieve relevant property documents using RAG with entity-based filters
-        // As per plan lines 524-535: RAG Flow with extracted entity filters
-        const relevantProperties = await ragService.retrieveRelevantDocs(
+        // Use unified RAG service to retrieve both properties AND knowledge base documents
+        // This replaces the old property-only RAG with intelligent multi-source retrieval
+        const unifiedResult = await unifiedRAGService.smartRetrieve(
           message.content,
           session.agentId,
           {
-            topK: 5, // Return top 5 most relevant properties
-            ...searchFilters, // ✅ Task 2.3: Add extracted entity filters here
+            topK: 5, // Return top 5 most relevant results per source
+            filters: searchFilters, // Entity-based property filters
+            threshold: 0.7, // Similarity threshold
           }
         );
 
-        logger.info('Relevant properties retrieved', {
+        const relevantProperties = unifiedResult.properties;
+
+        logger.info('Unified RAG retrieval completed', {
           messageId: message.messageId,
-          count: relevantProperties.length,
+          propertiesCount: unifiedResult.sources.propertyCount,
+          documentsCount: unifiedResult.sources.documentCount,
+          totalContext: unifiedResult.combinedContext.length,
         });
 
-        // Augment prompt with retrieved properties
-        // As per plan lines 506-512 and 532: "Format properties into context string"
-        const ragContext = await ragService.augmentPrompt(
-          message.content,
-          relevantProperties
-        );
+        // Use combined context from unified RAG (includes both properties and documents)
+        const ragContext = unifiedResult.combinedContext;
 
-        logger.debug('RAG context generated', {
+        logger.debug('RAG context generated from unified sources', {
           messageId: message.messageId,
           contextLength: ragContext.length,
+          hasProperties: unifiedResult.sources.propertyCount > 0,
+          hasDocuments: unifiedResult.sources.documentCount > 0,
         });
 
         // Task 2.1 - Generate AI response ✅ IMPLEMENTED

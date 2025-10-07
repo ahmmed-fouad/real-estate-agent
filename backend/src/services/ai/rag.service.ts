@@ -21,7 +21,6 @@ import {
   PropertyDocument,
   SearchFilters,
   RetrievalOptions,
-  VectorSearchResult,
 } from './rag-types';
 
 const logger = createServiceLogger('RAGService');

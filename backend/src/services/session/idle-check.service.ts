@@ -4,7 +4,7 @@
  * As per plan line 309: "IDLE - No activity for X minutes"
  */
 
-import Queue, { Job } from 'bull';
+import Bull, { Job, Queue } from 'bull';
 import { redisManager } from '../../config/redis-manager';
 import { createServiceLogger } from '../../utils/logger';
 import { sessionManager } from './session-manager.service';
@@ -29,7 +29,7 @@ export class IdleCheckService {
     this.checkIntervalMinutes = parseInt(process.env.IDLE_CHECK_INTERVAL_MINUTES || '5', 10);
 
     // Create Bull queue for idle checks with shared config
-    this.queue = new Queue<IdleCheckJob>('idle-session-check', {
+    this.queue = new Bull<IdleCheckJob>('idle-session-check', {
       redis: redisManager.getBullRedisConfig(),
       defaultJobOptions: {
         removeOnComplete: 10, // Keep last 10 completed checks
