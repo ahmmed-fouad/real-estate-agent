@@ -105,10 +105,27 @@ export class DocumentService {
 
       // Store embedding in Supabase vector store (separate from Prisma)
       if (embedding) {
-        await supabase
+        const { data: updateData, error: embeddingError } = await supabase
           .from('documents')
           .update({ embedding })
-          .eq('id', document.id);
+          .eq('id', document.id)
+          .select();
+
+        if (embeddingError) {
+          logger.error('Failed to store embedding in Supabase', {
+            error: embeddingError.message,
+            details: embeddingError.details,
+            hint: embeddingError.hint,
+            documentId: document.id,
+          });
+          console.error('Supabase embedding error:', JSON.stringify(embeddingError, null, 2));
+          throw new Error(`Failed to store embedding: ${embeddingError.message}`);
+        }
+
+        logger.info('Embedding stored successfully', {
+          documentId: document.id,
+          updated: updateData?.length || 0,
+        });
       }
 
       logger.info('Document ingested successfully', {

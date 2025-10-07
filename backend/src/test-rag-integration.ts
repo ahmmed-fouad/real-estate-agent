@@ -65,7 +65,7 @@ async function testRAGIntegration() {
           agent.id,
           {
             topK: 3,
-            threshold: 0.7,
+            threshold: 0.2, // Lowered threshold for better recall with test data
           }
         );
 

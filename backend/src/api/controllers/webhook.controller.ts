@@ -65,13 +65,22 @@ export class WebhookController {
       const rawBody = req.rawBody;
       const webhookSecret = process.env.WHATSAPP_WEBHOOK_SECRET || whatsappConfig.verifyToken;
 
-      // Validate webhook signature for security
+      logger.info('Webhook request details', {
+        hasSignature: !!signature,
+        hasRawBody: !!rawBody,
+        originalUrl: req.originalUrl,
+        path: req.path,
+        bodyKeys: Object.keys(req.body || {}),
+      });
+
+      // Validate webhook signature for security (skip if no signature header - Twilio doesn't send this)
       if (!rawBody) {
-        logger.error('Missing raw body for signature verification');
-        return ErrorResponse.unauthorized(res, 'Invalid request format');
+        logger.warn('Missing raw body for signature verification - skipping for Twilio compatibility');
+        // Don't fail - Twilio doesn't require signature validation
+        // return ErrorResponse.unauthorized(res, 'Invalid request format');
       }
 
-      if (signature) {
+      if (signature && rawBody) {
         const isValid = verifyWebhookSignature(
           rawBody,
           signature,
@@ -82,6 +91,8 @@ export class WebhookController {
           logger.warn('Invalid webhook signature received');
           return ErrorResponse.unauthorized(res, 'Invalid signature');
         }
+      } else if (signature && !rawBody) {
+        logger.warn('Signature provided but no raw body - cannot verify');
       }
 
       const payload: WebhookPayload = req.body;
@@ -98,7 +109,10 @@ export class WebhookController {
       this.processWebhookAsync(payload).catch((err) => {
         logger.error('Async webhook processing failed', {
           error: err instanceof Error ? err.message : 'Unknown error',
+          stack: err instanceof Error ? err.stack : undefined,
+          payload: JSON.stringify(payload),
         });
+        console.error('Full error details:', err);
       });
     } catch (error) {
       return ErrorResponse.send(res, error, 'Failed to process webhook message', 500);
@@ -150,10 +164,33 @@ export class WebhookController {
    */
   private async processWebhookAsync(payload: WebhookPayload | any): Promise<void> {
     try {
+      logger.info('Processing webhook payload', {
+        hasEntry: !!payload.entry,
+        entryCount: payload.entry?.length || 0,
+        payloadKeys: Object.keys(payload),
+        isTwilio: !!payload.Body, // Twilio sends Body field
+      });
+
       // Extract messages from the payload
       const messages = [];
 
-      if (payload.entry) {
+      // Check if this is a Twilio webhook (different format than Meta)
+      if (payload.Body && payload.From) {
+        logger.info('Detected Twilio webhook format', {
+          from: payload.From,
+          body: payload.Body,
+          messageSid: payload.MessageSid,
+        });
+        messages.push({
+          from: payload.From.replace('whatsapp:', ''), // Twilio prefixes with 'whatsapp:'
+          messageId: payload.MessageSid || payload.SmsMessageSid,
+          timestamp: new Date().toISOString(),
+          type: 'text' as const,
+          text: payload.Body,
+        });
+      } else if (payload.entry) {
+        // Meta/Facebook WhatsApp format
+        logger.info('Detected Meta WhatsApp webhook format');
         for (const entry of payload.entry) {
           if (entry.changes) {
             for (const change of entry.changes) {

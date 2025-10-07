@@ -239,7 +239,7 @@ model Document {
   
   // Vector embeddings for search
   embeddingText   String?  @map("embedding_text") @db.Text
-  embedding       Unsupported("vector(1536)")? // OpenAI embedding dimension
+  embedding       Unsupported("vector(1536)")? // OpenAI embedding dimension (reduced for pgvector)
   
   // Metadata
   tags            String[]

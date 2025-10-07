@@ -55,6 +55,7 @@ export class EmbeddingService {
         model: this.model,
         input: text,
         encoding_format: 'float',
+        dimensions: 1536, // Reduce to 1536 for pgvector index compatibility
       });
 
       const embedding = response.data[0].embedding;
@@ -108,6 +109,7 @@ export class EmbeddingService {
         model: this.model,
         input: texts,
         encoding_format: 'float',
+        dimensions: 1536, // Reduce to 1536 for pgvector index compatibility
       });
 
       const embeddings = response.data.map((item) => item.embedding);

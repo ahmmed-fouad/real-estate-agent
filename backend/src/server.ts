@@ -50,7 +50,7 @@ app.use(
     limit: '10mb',
     verify: (req: any, _res, buf) => {
       // Capture raw body for webhook signature verification
-      if (req.originalUrl.includes('/webhook')) {
+      if (req.originalUrl.includes('/webhook') || req.originalUrl.includes('/api/webhook')) {
         req.rawBody = buf.toString('utf8');
       }
     },
