@@ -130,24 +130,53 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
 
       try {
         // ✅ Task 4.5 - Skip AI processing if conversation is escalated to agent
+        // FIX: Add timeout recovery - if agent hasn't responded in 1 minute, return to AI (for testing)
         if (session.state === ConversationState.WAITING_AGENT) {
-          logger.info('Conversation is escalated to agent - skipping AI processing', {
-            sessionId: session.id,
-            customerId: session.customerId,
-            state: session.state,
-          });
+          const escalationTime = session.context.escalationTime || new Date();
+          const tenMinutesAgo = new Date(Date.now() - 1 * 60 * 1000); // Changed to 1 minute for testing
+          
+          // If escalated more than 10 minutes ago, recover to ACTIVE state
+          if (new Date(escalationTime) < tenMinutesAgo) {
+            logger.info('Escalation timeout - returning to AI processing', {
+              sessionId: session.id,
+              escalationTime,
+              minutesWaiting: Math.floor((Date.now() - new Date(escalationTime).getTime()) / 60000),
+            });
+            
+            // Reset state to ACTIVE
+            session.state = ConversationState.ACTIVE;
+            delete session.context.escalationTime;
+            
+            // Send fallback message
+            const fallbackMsg = session.context.languagePreference?.primary === 'ar'
+              ? 'عذراً على التأخير. سيتواصل معك أحد ممثلينا قريباً. في هذه الأثناء، كيف يمكنني مساعدتك؟ 😊'
+              : session.context.languagePreference?.primary === 'en'
+              ? 'Sorry for the delay. One of our representatives will contact you soon. Meanwhile, how can I help you? 😊'
+              : 'عذراً على التأخير. سيتواصل معك أحد ممثلينا قريباً.\nSorry for the delay. One of our representatives will contact you soon.\n\nكيف يمكنني مساعدتك؟ / How can I help you? 😊';
+            
+            await whatsappService.sendTextMessage(message.from, fallbackMsg);
+            
+            // Continue with normal AI processing below
+          } else {
+            logger.info('Conversation is escalated to agent - skipping AI processing', {
+              sessionId: session.id,
+              customerId: session.customerId,
+              state: session.state,
+              minutesWaiting: Math.floor((Date.now() - new Date(escalationTime).getTime()) / 60000),
+            });
 
-          // Just store the user message
-          await sessionManager.updateSession(session);
+            // Just store the user message
+            await sessionManager.updateSession(session);
 
-          logger.info('User message stored, awaiting agent response', {
-            sessionId: session.id,
-          });
+            logger.info('User message stored, awaiting agent response', {
+              sessionId: session.id,
+            });
 
-          return {
-            processed: true,
-            responseGenerated: false, // AI did not generate a response
-          };
+            return {
+              processed: true,
+              responseGenerated: false, // AI did not generate a response
+            };
+          }
         }
 
         // ✅ Task 4.3 Fix #5 - Handle customer slot selection
@@ -480,7 +509,7 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
           {
             topK: 5, // Return top 5 most relevant results per source
             filters: searchFilters, // Entity-based property filters
-            threshold: 0.7, // Similarity threshold
+            threshold: 0.3, // Similarity threshold (lowered for better matches)
           }
         );
 
@@ -492,6 +521,27 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
           documentsCount: unifiedResult.sources.documentCount,
           totalContext: unifiedResult.combinedContext.length,
         });
+
+        // DEBUG: Log what properties were found
+        if (relevantProperties.length > 0) {
+          logger.info('=== PROPERTIES FOUND ===', {
+            count: relevantProperties.length,
+            properties: relevantProperties.map(p => ({
+              id: p.id,
+              name: p.projectName,
+              type: p.propertyType,
+              location: `${p.location.city}, ${p.location.district}`,
+              price: p.pricing.basePrice,
+              bedrooms: p.specifications.bedrooms,
+            })),
+          });
+        } else {
+          logger.warn('=== NO PROPERTIES FOUND ===', {
+            messageId: message.messageId,
+            query: message.content,
+            filters: searchFilters,
+          });
+        }
 
         // Use combined context from unified RAG (includes both properties and documents)
         const ragContext = unifiedResult.combinedContext;
@@ -517,6 +567,19 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
           ragContext // Task 2.2: Add RAG context here ✅
         );
 
+        // DEBUG: Log full conversation context
+        logger.info('=== CONVERSATION DEBUG ===', {
+          sessionId: session.id,
+          messageCount: session.context.messageHistory.length,
+          userMessage: message.content,
+          propertiesFound: relevantProperties.length,
+          documentsFound: unifiedResult.sources.documentCount,
+          extractedInfo: JSON.stringify(session.context.extractedInfo),
+          intent: intentAnalysis.intent,
+          systemPromptLength: systemPrompt.length,
+          systemPromptPreview: systemPrompt.substring(0, 500),
+        });
+
         // Generate response using LLM with RAG context
         // Uses configured maxTokens from openaiConfig (default: 500)
         const llmResponse = await llmService.generateResponse(
@@ -528,6 +591,14 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
             // which are configured via environment variables
           }
         );
+
+        // DEBUG: Log AI response
+        logger.info('=== AI RESPONSE DEBUG ===', {
+          sessionId: session.id,
+          responseLength: llmResponse.content.length,
+          response: llmResponse.content,
+          tokenUsage: llmResponse.tokenUsage,
+        });
 
         logger.info('AI response generated', {
           messageId: message.messageId,
@@ -590,6 +661,7 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
           
           // Update session state to WAITING_AGENT
           session.state = ConversationState.WAITING_AGENT;
+          session.context.escalationTime = new Date();
           
           // Try to execute handoff
           try {

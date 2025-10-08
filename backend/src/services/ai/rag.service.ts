@@ -32,7 +32,7 @@ const logger = createServiceLogger('RAGService');
 export class RAGService implements IRAGService {
   private readonly tableName = 'properties';
   private readonly defaultTopK = 5;
-  private readonly defaultThreshold = 0.7; // 70% similarity
+  private readonly defaultThreshold = 0.2; // Lowered from 0.7 to match actual similarity scores (0.27-0.35)
 
   constructor() {
     logger.info('RAG Service initialized', {

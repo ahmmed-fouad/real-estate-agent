@@ -73,6 +73,7 @@ export interface ConversationSession {
       step: 'awaiting_time_selection' | 'awaiting_confirmation';
       selectedTime?: Date;
     };
+    escalationTime?: Date;  // FIX: Track when conversation was escalated for timeout recovery
   };
 }
 

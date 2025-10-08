@@ -49,7 +49,7 @@ export interface UnifiedRAGOptions extends RetrievalOptions {
  */
 export class UnifiedRAGService {
   private readonly defaultTopK = 5;
-  private readonly defaultThreshold = 0.7;
+  private readonly defaultThreshold = 0.2; // Lowered from 0.7 to match actual similarity scores
 
   constructor() {
     logger.info('Unified RAG Service initialized', {

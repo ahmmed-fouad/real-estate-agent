@@ -9,7 +9,7 @@
  * - Job tracking
  */
 
-import Queue, { Job, JobOptions } from 'bull';
+import Bull, { Job, JobOptions, Queue } from 'bull';
 import { createServiceLogger } from '../../utils/logger';
 import { redisManager } from '../../config/redis-manager';
 import { ParsedMessage } from '../whatsapp/types';
@@ -41,7 +41,8 @@ export class MessageQueueService {
 
   constructor() {
     // Initialize Bull queue with shared Redis config (FIXED: Issue #2)
-    this.queue = new Queue<MessageQueueJob>('whatsapp-messages', {
+    // FIX: Optimized for low latency
+    this.queue = new Bull<MessageQueueJob>('whatsapp-messages', {
       redis: redisManager.getBullRedisConfig(),
       defaultJobOptions: {
         attempts: 3, // Retry up to 3 times
@@ -52,10 +53,21 @@ export class MessageQueueService {
         removeOnComplete: 100, // Keep last 100 completed jobs
         removeOnFail: 500, // Keep last 500 failed jobs for debugging
       },
+      settings: {
+        lockDuration: 120000, // 120 seconds lock (increased for AI processing time)
+        stalledInterval: 30000, // Check for stalled jobs every 30s
+        maxStalledCount: 2, // Retry stalled jobs twice
+        guardInterval: 5000, // Check for delayed jobs every 5s
+        retryProcessDelay: 5000, // Retry failed processing after 5s
+      },
+      limiter: {
+        max: 10, // Process max 10 jobs (reduced to prevent overload)
+        duration: 1000, // per second
+      },
     });
 
     // Initialize Dead Letter Queue for permanently failed messages (FIXED: Issue #3)
-    this.deadLetterQueue = new Queue<MessageQueueJob>('whatsapp-messages-dlq', {
+    this.deadLetterQueue = new Bull<MessageQueueJob>('whatsapp-messages-dlq', {
       redis: redisManager.getBullRedisConfig(),
       defaultJobOptions: {
         removeOnComplete: 1000, // Keep more DLQ entries
@@ -117,7 +129,8 @@ export class MessageQueueService {
     }
 
     // Process jobs with concurrency
-    const concurrency = parseInt(process.env.QUEUE_CONCURRENCY || '5', 10);
+    // FIX: Increased from 5 to 10 for faster processing
+    const concurrency = parseInt(process.env.QUEUE_CONCURRENCY || '10', 10);
 
     this.queue.process('process-message', concurrency, async (job) => {
       logger.info('Processing message from queue', {

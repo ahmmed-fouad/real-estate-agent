@@ -16,6 +16,7 @@ import {
   ExtractedInfo,
 } from './types';
 import { Intent } from '../ai/intent-types';
+import { prisma } from '../../config/prisma-client';
 
 const logger = createServiceLogger('SessionManager');
 
@@ -199,9 +200,40 @@ export class SessionManager implements ISessionManager {
    * Initial state is NEW as per plan line 306
    */
   private async createNewSession(customerId: string): Promise<ConversationSession> {
-    // For now, use a default agent ID
-    // This will be properly implemented when we have agent management
-    const agentId = process.env.DEFAULT_AGENT_ID || 'default-agent';
+    // FIX: Get the first active agent from the database instead of hardcoded ID
+    // In a multi-agent setup, this could use routing logic (round-robin, load balancing, etc.)
+    let agentId: string;
+    
+    try {
+      const agent = await prisma.agent.findFirst({
+        where: {
+          status: 'active',
+        },
+        select: {
+          id: true,
+        },
+      });
+      
+      if (!agent) {
+        throw new Error('No active agents found in database');
+      }
+      
+      agentId = agent.id;
+      logger.info('Agent assigned to session', {
+        agentId,
+        customerId,
+      });
+    } catch (error) {
+      logger.error('Failed to fetch agent, using fallback', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        customerId,
+      });
+      // Fallback to environment variable or error
+      agentId = process.env.DEFAULT_AGENT_ID || '';
+      if (!agentId) {
+        throw new Error('No agent ID available and DEFAULT_AGENT_ID not set');
+      }
+    }
 
     const now = new Date();
     const session: ConversationSession = {

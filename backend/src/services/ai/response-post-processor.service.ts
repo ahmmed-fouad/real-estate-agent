@@ -302,31 +302,33 @@ export class ResponsePostProcessorService {
 
   /**
    * Determine if conversation should be escalated to human
+   * 
+   * FIX: Made more conservative - only escalate when truly needed
+   * The AI often mentions "agent" or "مندوب" as an option, but that doesn't
+   * mean it can't help. Only escalate when explicitly requested or when
+   * the AI admits it cannot help.
    */
   private shouldEscalate(intent: Intent, response: string): boolean {
-    // Always escalate for these intents
+    // ONLY escalate for these intents (explicit requests)
     if (intent === Intent.AGENT_REQUEST || intent === Intent.COMPLAINT) {
       return true;
     }
 
-    // Check for escalation keywords in response
-    const escalationKeywords = [
-      'agent',
-      'human',
-      'speak with someone',
-      'talk to someone',
-      'مندوب',
-      'موظف',
-      'أتحدث مع',
-      "can't help",
-      "cannot help",
-      "don't know",
+    // FIX: Check ONLY for phrases where AI admits it cannot help
+    // NOT for mentions of "agent" as an option
+    const cannotHelpKeywords = [
+      "i cannot help",
+      "i can't help",
+      "i don't know",
+      "unable to assist",
+      "beyond my capabilities",
+      'لا أستطيع مساعدتك',
       'لا أعرف',
-      'لا أستطيع',
+      'خارج قدراتي',
     ];
 
     const responseLower = response.toLowerCase();
-    return escalationKeywords.some(keyword => responseLower.includes(keyword.toLowerCase()));
+    return cannotHelpKeywords.some(keyword => responseLower.includes(keyword.toLowerCase()));
   }
 
   /**
