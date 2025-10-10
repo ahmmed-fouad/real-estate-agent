@@ -3,7 +3,20 @@
  * Task 4.4: Analytics & Reporting
  */
 
-export * from './analytics.service';
-export * from './report-generator.service';
-export * from './visualization.service';
-export * from './scheduled-reports.service';
+export { analyticsService } from './analytics.service';
+export { reportGeneratorService } from './report-generator.service';
+export { visualizationService } from './visualization.service';
+export { scheduledReportsService } from './scheduled-reports.service';
+
+// Re-export types explicitly to avoid conflicts
+export type {
+  DateRange,
+  ConversationMetrics,
+  LeadMetrics,
+  CustomerMetrics,
+} from './analytics.service';
+
+export type {
+  ReportFormat,
+  ReportData,
+} from './report-generator.service';

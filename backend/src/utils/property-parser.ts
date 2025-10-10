@@ -222,7 +222,7 @@ export class PropertyParserService {
         cast: true, // Auto-cast numbers
         cast_date: false, // Don't auto-cast dates (we'll handle manually)
         relax_column_count: true, // Allow rows with fewer columns
-        on_record: (record) => {
+        on_record: (record: any) => {
           // Convert empty strings to undefined
           Object.keys(record).forEach(key => {
             if (record[key] === '') {

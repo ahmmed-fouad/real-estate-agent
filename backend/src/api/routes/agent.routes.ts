@@ -15,9 +15,6 @@ import {
 
 const router = Router();
 
-// All routes require authentication
-router.use(authenticate);
-
 /**
  * @swagger
  * /api/agents/profile:
@@ -49,7 +46,7 @@ router.use(authenticate);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/profile', agentController.getProfile);
+router.get('/profile', authenticate as any, agentController.getProfile as any);
 
 /**
  * @swagger
@@ -111,8 +108,9 @@ router.get('/profile', agentController.getProfile);
  */
 router.put(
   '/profile',
+  authenticate as any,
   validate(UpdateProfileSchema),
-  agentController.updateProfile
+  agentController.updateProfile as any
 );
 
 /**
@@ -156,7 +154,7 @@ router.put(
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/stats', agentController.getStats);
+router.get('/stats', authenticate as any, agentController.getStats as any);
 
 /**
  * @swagger
@@ -199,8 +197,9 @@ router.get('/stats', agentController.getStats);
  */
 router.put(
   '/settings',
+  authenticate as any,
   validate(UpdateSettingsSchema),
-  agentController.updateSettings
+  agentController.updateSettings as any
 );
 
 export default router;

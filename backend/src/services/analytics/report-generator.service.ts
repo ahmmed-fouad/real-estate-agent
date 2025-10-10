@@ -347,7 +347,7 @@ export class ReportGeneratorService {
 
     logger.info('Excel export completed', {
       agentId: reportData.agent.id,
-      size: buffer.length,
+      size: buffer.byteLength,
     });
 
     return Buffer.from(buffer);

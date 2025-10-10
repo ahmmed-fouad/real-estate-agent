@@ -19,60 +19,60 @@ const router = express.Router();
  * POST /api/schedule/availability
  * Set agent availability for scheduling viewings
  */
-router.post('/availability', authenticate, scheduleController.setAvailability as any);
+router.post('/availability', authenticate as any, scheduleController.setAvailability as any);
 
 /**
  * GET /api/schedule/slots
  * Get available time slots for scheduling viewings
  */
-router.get('/slots', authenticate, scheduleController.getAvailableSlots as any);
+router.get('/slots', authenticate as any, scheduleController.getAvailableSlots as any);
 
 /**
  * POST /api/schedule/book
  * Book a property viewing
  */
-router.post('/book', authenticate, scheduleController.bookViewing as any);
+router.post('/book', authenticate as any, scheduleController.bookViewing as any);
 
 /**
  * PUT /api/schedule/reschedule/:id
  * Reschedule an existing viewing
  */
-router.put('/reschedule/:id', authenticate, scheduleController.rescheduleViewing as any);
+router.put('/reschedule/:id', authenticate as any, scheduleController.rescheduleViewing as any);
 
 /**
  * DELETE /api/schedule/cancel/:id
  * Cancel a scheduled viewing
  */
-router.delete('/cancel/:id', authenticate, scheduleController.cancelViewing as any);
+router.delete('/cancel/:id', authenticate as any, scheduleController.cancelViewing as any);
 
 /**
  * GET /api/schedule/viewings
  * Get all viewings for the authenticated agent
  */
-router.get('/viewings', authenticate, scheduleController.getAgentViewings as any);
+router.get('/viewings', authenticate as any, scheduleController.getAgentViewings as any);
 
 /**
  * GET /api/schedule/viewings/:id
  * Get a viewing by ID
  */
-router.get('/viewings/:id', authenticate, scheduleController.getViewingById as any);
+router.get('/viewings/:id', authenticate as any, scheduleController.getViewingById as any);
 
 /**
  * GET /api/schedule/viewings/:id/icalendar
  * Export viewing as iCalendar file
  */
-router.get('/viewings/:id/icalendar', authenticate, calendarController.exportICalendar as any);
+router.get('/viewings/:id/icalendar', authenticate as any, calendarController.exportICalendar as any);
 
 /**
  * POST /api/schedule/viewings/:id/google-calendar
  * Add viewing to Google Calendar
  */
-router.post('/viewings/:id/google-calendar', authenticate, calendarController.addToGoogleCalendar as any);
+router.post('/viewings/:id/google-calendar', authenticate as any, calendarController.addToGoogleCalendar as any);
 
 /**
  * GET /api/schedule/google-auth-url
  * Get Google Calendar OAuth authorization URL
  */
-router.get('/google-auth-url', authenticate, calendarController.getGoogleAuthUrl as any);
+router.get('/google-auth-url', authenticate as any, calendarController.getGoogleAuthUrl as any);
 
 export default router;

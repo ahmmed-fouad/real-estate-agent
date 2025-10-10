@@ -67,7 +67,7 @@ export class SchedulingService {
       data: {
         settings: {
           availability,
-        },
+        } as any,
       },
     });
 

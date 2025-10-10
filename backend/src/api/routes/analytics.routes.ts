@@ -18,9 +18,6 @@ import {
 
 const router = Router();
 
-// All routes require authentication
-router.use(authenticate);
-
 /**
  * @swagger
  * /api/analytics/overview:
@@ -75,7 +72,7 @@ router.use(authenticate);
  *       401:
  *         description: Not authenticated
  */
-router.get('/overview', validate(AnalyticsOverviewSchema), analyticsController.getOverview);
+router.get('/overview', authenticate as any, validate(AnalyticsOverviewSchema), analyticsController.getOverview as any);
 
 /**
  * @swagger
@@ -127,8 +124,9 @@ router.get('/overview', validate(AnalyticsOverviewSchema), analyticsController.g
  */
 router.get(
   '/conversations',
+  authenticate as any,
   validate(ConversationAnalyticsSchema),
-  analyticsController.getConversationAnalytics
+  analyticsController.getConversationAnalytics as any
 );
 
 /**
@@ -173,7 +171,7 @@ router.get(
  *                     averageLeadScore:
  *                       type: number
  */
-router.get('/leads', validate(LeadAnalyticsSchema), analyticsController.getLeadAnalytics);
+router.get('/leads', authenticate as any, validate(LeadAnalyticsSchema), analyticsController.getLeadAnalytics as any);
 
 /**
  * @swagger
@@ -217,8 +215,9 @@ router.get('/leads', validate(LeadAnalyticsSchema), analyticsController.getLeadA
  */
 router.get(
   '/properties',
+  authenticate as any,
   validate(PropertyAnalyticsSchema),
-  analyticsController.getPropertyAnalytics
+  analyticsController.getPropertyAnalytics as any
 );
 
 /**
@@ -270,7 +269,7 @@ router.get(
  *                     totalIntents:
  *                       type: number
  */
-router.get('/topics', validate(InquiryTopicsSchema), analyticsController.getInquiryTopics);
+router.get('/topics', authenticate as any, validate(InquiryTopicsSchema), analyticsController.getInquiryTopics as any);
 
 /**
  * Task 4.4, Subtask 1: Detailed metrics endpoint
@@ -278,8 +277,9 @@ router.get('/topics', validate(InquiryTopicsSchema), analyticsController.getInqu
  */
 router.get(
   '/detailed',
+  authenticate as any,
   validate(AnalyticsOverviewSchema),
-  analyticsController.getDetailedAnalytics
+  analyticsController.getDetailedAnalytics as any
 );
 
 /**
@@ -287,26 +287,28 @@ router.get(
  * GET /api/analytics/report
  * GET /api/analytics/report/email-preview
  */
-router.get('/report', analyticsController.generateReport);
-router.get('/report/email-preview', analyticsController.getEmailPreview);
+router.get('/report', authenticate as any, analyticsController.generateReport as any);
+router.get('/report/email-preview', authenticate as any, analyticsController.getEmailPreview as any);
 
 /**
  * Task 4.4, Subtask 3: Visualization endpoints
  * Dashboard visualization data for charts
  */
-router.get('/visualizations/conversation-trends', analyticsController.getConversationTrendsChart);
-router.get('/visualizations/lead-quality-trends', analyticsController.getLeadQualityTrendsChart);
+router.get('/visualizations/conversation-trends', authenticate as any, analyticsController.getConversationTrendsChart as any);
+router.get('/visualizations/lead-quality-trends', authenticate as any, analyticsController.getLeadQualityTrendsChart as any);
 router.get(
   '/visualizations/property-type-comparison',
-  analyticsController.getPropertyTypeComparisonChart
+  authenticate as any,
+  analyticsController.getPropertyTypeComparisonChart as any
 );
-router.get('/visualizations/location-comparison', analyticsController.getLocationComparisonChart);
+router.get('/visualizations/location-comparison', authenticate as any, analyticsController.getLocationComparisonChart as any);
 router.get(
   '/visualizations/lead-quality-distribution',
-  analyticsController.getLeadQualityDistributionChart
+  authenticate as any,
+  analyticsController.getLeadQualityDistributionChart as any
 );
-router.get('/visualizations/conversation-status', analyticsController.getConversationStatusChart);
-router.get('/visualizations/lead-journey-funnel', analyticsController.getLeadJourneyFunnel);
-router.get('/visualizations/peak-hours-heatmap', analyticsController.getPeakHoursHeatmap);
+router.get('/visualizations/conversation-status', authenticate as any, analyticsController.getConversationStatusChart as any);
+router.get('/visualizations/lead-journey-funnel', authenticate as any, analyticsController.getLeadJourneyFunnel as any);
+router.get('/visualizations/peak-hours-heatmap', authenticate as any, analyticsController.getPeakHoursHeatmap as any);
 
 export default router;

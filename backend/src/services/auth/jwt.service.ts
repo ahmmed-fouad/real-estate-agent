@@ -67,7 +67,7 @@ export class JWTService {
 
       // Generate access token
       const accessToken = jwt.sign(payload, jwtConfig.secret, {
-        expiresIn: jwtConfig.accessExpiration,
+        expiresIn: jwtConfig.accessExpiration as any,
         issuer: jwtConfig.issuer,
       });
 
@@ -77,7 +77,7 @@ export class JWTService {
         { ...payload, jti: refreshTokenId },
         jwtConfig.secret,
         {
-          expiresIn: jwtConfig.refreshExpiration,
+          expiresIn: jwtConfig.refreshExpiration as any,
           issuer: jwtConfig.issuer,
         }
       );

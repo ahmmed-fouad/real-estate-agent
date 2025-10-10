@@ -140,27 +140,24 @@ export const listProperties = async (
     // Use pagination helper
     const result = await paginate(
       prisma.property,
+      where,
+      { page, limit, sortBy, sortOrder },
       {
-        where,
-        include: {
-          paymentPlans: true,
-        },
-        orderBy: { [sortBy]: sortOrder },
-      },
-      { page, limit }
+        paymentPlans: true,
+      }
     );
 
     logger.info('Properties retrieved', {
       agentId,
-      count: result.data.length,
-      total: result.meta.total,
+      count: result.items.length,
+      total: result.pagination.total,
     });
 
     res.status(200).json({
       success: true,
       data: {
-        properties: result.data,
-        pagination: result.meta,
+        properties: result.items,
+        pagination: result.pagination,
       },
     });
   } catch (error) {
@@ -293,26 +290,18 @@ export const updateProperty = async (
           projectName: property.projectName,
           developerName: property.developerName || '',
           propertyType: property.propertyType,
-          location: {
-            city: property.city,
-            district: property.district,
-            address: property.address || '',
-            coordinates: [
-              property.latitude ? parseFloat(property.latitude.toString()) : 0,
-              property.longitude ? parseFloat(property.longitude.toString()) : 0,
-            ],
-          },
-          pricing: {
-            basePrice: parseFloat(property.basePrice.toString()),
-            pricePerMeter: parseFloat(property.pricePerMeter.toString()),
-            currency: property.currency,
-          },
-          specifications: {
-            area: parseFloat(property.area.toString()),
-            bedrooms: property.bedrooms,
-            bathrooms: property.bathrooms,
-            floors: property.floors || undefined,
-          },
+          city: property.city,
+          district: property.district,
+          address: property.address || '',
+          latitude: property.latitude ? parseFloat(property.latitude.toString()) : undefined,
+          longitude: property.longitude ? parseFloat(property.longitude.toString()) : undefined,
+          area: parseFloat(property.area.toString()),
+          bedrooms: property.bedrooms,
+          bathrooms: property.bathrooms,
+          floors: property.floors || undefined,
+          basePrice: parseFloat(property.basePrice.toString()),
+          pricePerMeter: parseFloat(property.pricePerMeter.toString()),
+          currency: property.currency,
           amenities: property.amenities,
           paymentPlans: property.paymentPlans.map((plan) => ({
             id: plan.id,

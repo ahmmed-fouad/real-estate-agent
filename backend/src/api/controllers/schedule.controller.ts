@@ -98,7 +98,7 @@ export const setAvailability = async (
       message: 'Availability set successfully',
     });
   } catch (error) {
-    ErrorResponse.handleError(res, error, 'Set availability failed');
+    return ErrorResponse.send(res, error, 'Set availability failed', 500, { agentId: req.user.id });
   }
 };
 
@@ -199,7 +199,7 @@ export const getAvailableSlots = async (
       count: slots.length,
     });
   } catch (error) {
-    ErrorResponse.handleError(res, error, 'Get available slots failed');
+    return ErrorResponse.send(res, error, 'Get available slots failed', 500, { agentId: req.user.id });
   }
 };
 
@@ -295,7 +295,7 @@ export const bookViewing = async (
       viewing,
     });
   } catch (error) {
-    ErrorResponse.handleError(res, error, 'Book viewing failed');
+    return ErrorResponse.send(res, error, 'Book viewing failed', 500, { agentId: req.user.id });
   }
 };
 
@@ -377,7 +377,7 @@ export const rescheduleViewing = async (
       viewing,
     });
   } catch (error) {
-    ErrorResponse.handleError(res, error, 'Reschedule viewing failed');
+    return ErrorResponse.send(res, error, 'Reschedule viewing failed', 500, { agentId: req.user.id, viewingId: req.params.id });
   }
 };
 
@@ -433,7 +433,7 @@ export const cancelViewing = async (
       viewing,
     });
   } catch (error) {
-    ErrorResponse.handleError(res, error, 'Cancel viewing failed');
+    return ErrorResponse.send(res, error, 'Cancel viewing failed', 500, { agentId: req.user.id, viewingId: req.params.id });
   }
 };
 
@@ -484,7 +484,7 @@ export const getViewingById = async (
       viewing,
     });
   } catch (error) {
-    ErrorResponse.handleError(res, error, 'Get viewing failed');
+    return ErrorResponse.send(res, error, 'Get viewing failed', 500, { agentId: req.user.id, viewingId: req.params.id });
   }
 };
 
@@ -575,6 +575,6 @@ export const getAgentViewings = async (
       count: viewings.length,
     });
   } catch (error) {
-    ErrorResponse.handleError(res, error, 'Get agent viewings failed');
+    return ErrorResponse.send(res, error, 'Get agent viewings failed', 500, { agentId: req.user.id });
   }
 };

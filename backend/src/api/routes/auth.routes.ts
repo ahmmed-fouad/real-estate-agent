@@ -340,9 +340,9 @@ router.post('/reset-password', validate(ResetPasswordSchema), authController.res
  */
 router.post(
   '/change-password',
-  authenticate,
+  authenticate as any,
   validate(ChangePasswordSchema),
-  authController.changePassword
+  authController.changePassword as any
 );
 
 /**
@@ -373,7 +373,7 @@ router.post(
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/logout', authenticate, authController.logout);
+router.post('/logout', authenticate as any, authController.logout as any);
 
 /**
  * @swagger
@@ -406,6 +406,6 @@ router.post('/logout', authenticate, authController.logout);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/me', authenticate, authController.getMe);
+router.get('/me', authenticate as any, authController.getMe as any);
 
 export default router;

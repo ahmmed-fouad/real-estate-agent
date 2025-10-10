@@ -9,7 +9,8 @@
  * - Rollback on critical errors
  */
 
-import Queue, { Job, JobOptions } from 'bull';
+import Queue from 'bull';
+import { Job, JobOptions, Queue as QueueType } from 'bull';
 import { createServiceLogger } from '../../utils/logger';
 import { redisManager } from '../../config/redis-manager';
 import { RawPropertyData } from '../../utils/property-parser';
@@ -70,7 +71,7 @@ export interface ProgressUpdate {
  * Manages async processing of property bulk uploads
  */
 export class PropertyBatchQueueService {
-  private queue: Queue<PropertyBatchJob>;
+  private queue: QueueType<PropertyBatchJob>;
   private isProcessing = false;
 
   // Store progress in Redis for real-time tracking

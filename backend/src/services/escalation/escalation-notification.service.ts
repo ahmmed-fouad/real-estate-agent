@@ -312,7 +312,11 @@ View in portal: ${process.env.APP_BASE_URL}/conversations/${data.conversationId}
    * Task 4.5 Refactor: Use centralized template service
    */
   private formatConversationForEmail(session: ConversationSession): string {
-    const recentMessages = session.context.messageHistory.slice(-6); // Last 6 messages
+    const recentMessages = session.context.messageHistory.slice(-6).map(msg => ({
+      role: msg.role,
+      content: typeof msg.content === 'string' ? msg.content : '[Media/Location]',
+      timestamp: msg.timestamp,
+    }));
     return emailTemplateService.formatConversationMessages(recentMessages);
   }
 

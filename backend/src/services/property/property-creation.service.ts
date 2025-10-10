@@ -79,15 +79,14 @@ export class PropertyCreationService {
           basePrice: new Prisma.Decimal(rawData.basePrice),
           pricePerMeter: new Prisma.Decimal(rawData.pricePerMeter),
           currency: rawData.currency || 'EGP',
-          amenities: rawData.amenities || [],
+          amenities: Array.isArray(rawData.amenities) ? rawData.amenities : [],
           description: rawData.description || null,
           deliveryDate: rawData.deliveryDate ? new Date(rawData.deliveryDate) : null,
-          images: rawData.images || [],
-          documents: rawData.documents || [],
+          images: Array.isArray(rawData.images) ? rawData.images : [],
+          documents: Array.isArray(rawData.documents) ? rawData.documents : [],
           videoUrl: rawData.videoUrl || null,
           status: rawData.status || 'available',
-          embeddingText: ragResult.embeddingText,
-          paymentPlans: rawData.paymentPlans
+          paymentPlans: rawData.paymentPlans && Array.isArray(rawData.paymentPlans)
             ? {
                 create: rawData.paymentPlans.map((plan: any) => ({
                   planName: plan.planName,

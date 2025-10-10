@@ -9,7 +9,8 @@
  * - Handle cancellations/rescheduling (cancel scheduled reminders)
  */
 
-import Queue, { Job } from 'bull';
+import Queue from 'bull';
+import { Job, Queue as QueueType } from 'bull';
 import { createServiceLogger } from '../../utils/logger';
 import { redisManager } from '../../config/redis-manager';
 import { whatsappService } from '../whatsapp/whatsapp.service';
@@ -32,11 +33,13 @@ export interface ReminderJob {
  * Manages automated viewing reminders via WhatsApp
  */
 export class ReminderService {
-  private queue: Queue<ReminderJob>;
+  private queue: QueueType<ReminderJob>;
 
   constructor() {
     // Initialize Bull queue with Redis
-    this.queue = new Queue<ReminderJob>('viewing-reminders', redisManager.getBullRedisConfig());
+    this.queue = new Queue<ReminderJob>('viewing-reminders', {
+      redis: redisManager.getBullRedisConfig(),
+    });
 
     // Process reminder jobs
     this.queue.process(async (job: Job<ReminderJob>) => {
@@ -327,7 +330,7 @@ export class ReminderService {
   /**
    * Get queue for graceful shutdown
    */
-  getQueue(): Queue<ReminderJob> {
+  getQueue(): QueueType<ReminderJob> {
     return this.queue;
   }
 

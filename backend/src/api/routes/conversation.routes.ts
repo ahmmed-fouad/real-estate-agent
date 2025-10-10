@@ -20,9 +20,6 @@ import {
 
 const router = Router();
 
-// All routes require authentication
-router.use(authenticate);
-
 /**
  * @swagger
  * /api/conversations:
@@ -92,8 +89,9 @@ router.use(authenticate);
  */
 router.get(
   '/',
+  authenticate as any,
   validate(ListConversationsSchema),
-  conversationController.listConversations
+  conversationController.listConversations as any
 );
 
 /**
@@ -138,8 +136,9 @@ router.get(
  */
 router.get(
   '/:id',
+  authenticate as any,
   validate(GetConversationSchema),
-  conversationController.getConversation
+  conversationController.getConversation as any
 );
 
 /**
@@ -175,8 +174,9 @@ router.get(
  */
 router.post(
   '/:id/takeover',
+  authenticate as any,
   validate(TakeoverConversationSchema),
-  conversationController.takeoverConversation
+  conversationController.takeoverConversation as any
 );
 
 /**
@@ -220,8 +220,9 @@ router.post(
  */
 router.post(
   '/:id/close',
+  authenticate as any,
   validate(CloseConversationSchema),
-  conversationController.closeConversation
+  conversationController.closeConversation as any
 );
 
 /**
@@ -259,8 +260,9 @@ router.post(
  */
 router.post(
   '/:id/release',
+  authenticate as any,
   validate(ReleaseConversationSchema),
-  conversationController.releaseConversation
+  conversationController.releaseConversation as any
 );
 
 /**
@@ -303,8 +305,9 @@ router.post(
  */
 router.get(
   '/:id/export',
+  authenticate as any,
   validate(ExportConversationSchema),
-  conversationController.exportConversation
+  conversationController.exportConversation as any
 );
 
 /**
@@ -364,8 +367,9 @@ router.get(
  */
 router.post(
   '/:id/send-message',
+  authenticate as any,
   validate(SendMessageAsAgentSchema),
-  conversationController.sendMessageAsAgent
+  conversationController.sendMessageAsAgent as any
 );
 
 export default router;

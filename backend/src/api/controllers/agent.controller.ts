@@ -15,7 +15,8 @@ import { createServiceLogger } from '../../utils/logger';
 import { AuthenticatedRequest } from '../../types/auth';
 import { prisma } from '../../config/prisma-client';
 import { UpdateProfileData, UpdateSettingsData } from '../validators/agent.validators';
-import { ErrorResponse, AgentService } from '../../utils';
+import { ErrorResponse } from '../../utils';
+import { AgentService } from '../../services/agent/agent.service';
 
 const logger = createServiceLogger('AgentController');
 

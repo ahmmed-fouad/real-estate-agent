@@ -45,6 +45,7 @@ export interface LeadMetrics {
     cold: number;
   };
   conversionRate: number; // percentage (leads to viewings)
+  leadToViewingConversionRate: number; // alias for conversionRate
   leadSource: Record<string, number>; // source: count
 }
 
@@ -53,9 +54,9 @@ export interface LeadMetrics {
  */
 export interface PropertyMetrics {
   mostInquiredProperties: Array<{
-    propertyId: string;
-    propertyName: string;
-    inquiryCount: number;
+    id: string;
+    projectName: string;
+    inquiries: number;
   }>;
   propertiesWithNoInquiries: number;
   inquiryToViewingRatio: number; // percentage
@@ -66,6 +67,7 @@ export interface PropertyMetrics {
  */
 export interface CustomerMetrics {
   responseRate: number; // percentage (customers who respond)
+  customerResponseRate: number; // alias for responseRate
   dropOffPoints: Array<{
     stage: string;
     count: number;
@@ -205,10 +207,12 @@ export class AnalyticsService {
 
     logger.info('Lead metrics calculated', { agentId, newLeads, conversionRate });
 
+    const conversionRateValue = parseFloat(conversionRate.toFixed(2));
     return {
       newLeads,
       leadQualityDistribution,
-      conversionRate: parseFloat(conversionRate.toFixed(2)),
+      conversionRate: conversionRateValue,
+      leadToViewingConversionRate: conversionRateValue,
       leadSource,
     };
   }
@@ -243,9 +247,9 @@ export class AnalyticsService {
       .sort((a, b) => b._count.scheduledViewings - a._count.scheduledViewings)
       .slice(0, 10)
       .map((p) => ({
-        propertyId: p.id,
-        propertyName: p.projectName,
-        inquiryCount: p._count.scheduledViewings,
+        id: p.id,
+        projectName: p.projectName,
+        inquiries: p._count.scheduledViewings,
       }));
 
     // Properties with no inquiries
@@ -395,8 +399,10 @@ export class AnalyticsService {
       returnCustomers,
     });
 
+    const responseRateValue = parseFloat(responseRate.toFixed(2));
     return {
-      responseRate: parseFloat(responseRate.toFixed(2)),
+      responseRate: responseRateValue,
+      customerResponseRate: responseRateValue,
       dropOffPoints,
       returnCustomers,
       uniqueCustomers,

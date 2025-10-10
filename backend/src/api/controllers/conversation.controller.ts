@@ -75,31 +75,28 @@ export const listConversations = async (
     // Use pagination helper
     const result = await paginate(
       prisma.conversation,
+      where,
+      { page, limit, sortBy, sortOrder },
       {
-        where,
-        include: {
-          _count: {
-            select: {
-              messages: true,
-            },
+        _count: {
+          select: {
+            messages: true,
           },
         },
-        orderBy: { [sortBy]: sortOrder },
-      },
-      { page, limit }
+      }
     );
 
     logger.info('Conversations retrieved', {
       agentId,
-      count: result.data.length,
-      total: result.meta.total,
+      count: result.items.length,
+      total: result.pagination.total,
     });
 
     res.status(200).json({
       success: true,
       data: {
-        conversations: result.data,
-        pagination: result.meta,
+        conversations: result.items,
+        pagination: result.pagination,
       },
     });
   } catch (error) {
@@ -301,7 +298,7 @@ export const closeConversation = async (
     try {
       const session = await sessionManager.getSession(conversation.customerPhone);
       if (session) {
-        await sessionManager.closeSession(session.id, reason);
+        await sessionManager.closeSession(session.id);
         logger.info('Session closed', {
           conversationId: id,
           sessionId: session.id,

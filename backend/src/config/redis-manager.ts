@@ -201,7 +201,7 @@ class RedisConnectionManager {
     // Close main client
     if (this.mainClient) {
       closePromises.push(
-        this.mainClient.quit().catch((err) => {
+        this.mainClient.quit().then(() => {}).catch((err) => {
           logger.error('Error closing main Redis client', { error: err.message });
         })
       );
@@ -210,7 +210,7 @@ class RedisConnectionManager {
     // Close all subscribers
     for (const [name, subscriber] of this.subscribers) {
       closePromises.push(
-        subscriber.quit().catch((err) => {
+        subscriber.quit().then(() => {}).catch((err) => {
           logger.error('Error closing Redis subscriber', { name, error: err.message });
         })
       );
