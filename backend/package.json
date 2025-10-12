@@ -24,7 +24,12 @@
     "migrate:deploy": "prisma migrate deploy",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "create-agent": "tsx scripts/create-agent.ts",
+    "seed-properties": "tsx prisma/seeds/properties.seed.ts",
+    "seed-documents": "tsx prisma/seeds/documents.seed.ts",
+    "setup-all": "tsx scripts/setup-all.ts",
+    "verify-setup": "tsx scripts/verify-setup.ts"
   },
   "keywords": [
     "whatsapp",
