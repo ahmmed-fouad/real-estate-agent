@@ -190,8 +190,12 @@ ${JSON.stringify(extractedInfo, null, 2)}
 Keep it concise but comprehensive. Format in clear bullet points.`;
 
       const openaiClient = getOpenAIClient();
+      const model = process.env.OPENAI_MODEL || 'gpt-5';
+      const isNewModel = model.startsWith('gpt-5') || model.startsWith('o1');
+      const tokenParam = isNewModel ? { max_completion_tokens: 500 } : { max_tokens: 500 };
+
       const response = await openaiClient.chat.completions.create({
-        model: process.env.OPENAI_MODEL || 'gpt-4',
+        model,
         messages: [
           {
             role: 'system',
@@ -201,7 +205,7 @@ Keep it concise but comprehensive. Format in clear bullet points.`;
           { role: 'user', content: prompt },
         ],
         temperature: 0.3,
-        max_tokens: 500,
+        ...tokenParam,
       });
 
       const summary = response.choices[0].message.content || 'Unable to generate summary';
@@ -428,10 +432,12 @@ Keep it concise but comprehensive. Format in clear bullet points.`;
           status: 'active',
           lastActivityAt: new Date(),
           metadata: {
-            ...((await prisma.conversation.findUnique({
-              where: { id: conversationId },
-              select: { metadata: true },
-            }))?.metadata as any || {}),
+            ...(((
+              await prisma.conversation.findUnique({
+                where: { id: conversationId },
+                select: { metadata: true },
+              })
+            )?.metadata as any) || {}),
             aiResumed: true,
             aiResumedAt: new Date().toISOString(),
             handledByAgent: agentId,

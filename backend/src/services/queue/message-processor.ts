@@ -1,7 +1,7 @@
 /**
  * Message Processor
  * Handles actual processing of messages from the queue
- * 
+ *
  * Now integrated with Session Management (Task 1.3)
  * Will be further expanded in Phase 2 (AI Integration)
  */
@@ -12,13 +12,25 @@ import { whatsappService } from '../whatsapp/whatsapp.service';
 import { sessionManager } from '../session';
 import { ConversationState } from '../session/types';
 import { MessageQueueJob, MessageQueueResult } from './message-queue.service';
-import { llmService, promptBuilder, ragService, intentClassifier, entityExtractor, responsePostProcessor, Intent } from '../ai';
+import {
+  llmService,
+  promptBuilder,
+  // ragService,
+  intentClassifier,
+  entityExtractor,
+  responsePostProcessor,
+  Intent,
+} from '../ai';
 import { unifiedRAGService } from '../ai/unified-rag.service';
 import { leadScoringService } from '../lead';
 import { leadNotificationService } from '../notification';
 import { languageDetectionService } from '../language';
 import { schedulingIntegrationService } from '../schedule';
-import { escalationDetectorService, escalationHandoffService, EscalationTrigger } from '../escalation';
+import {
+  escalationDetectorService,
+  escalationHandoffService,
+  EscalationTrigger,
+} from '../escalation';
 import { prisma } from '../../config/prisma-client';
 
 const logger = createServiceLogger('MessageProcessor');
@@ -68,7 +80,7 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
         sessionId: session.id,
       });
     }
-    
+
     // Handle media messages - download if needed
     if (message.mediaId) {
       logger.info('Message contains media', {
@@ -129,12 +141,34 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
       });
 
       try {
+        // FIX: Handle "reset" command to clear escalation and restart conversation
+        const messageText = message.content.toLowerCase().trim();
+        if (messageText === 'reset' || messageText === 'restart' || messageText === 'clear') {
+          logger.info('Reset command received - clearing escalation', {
+            sessionId: session.id,
+            previousState: session.state,
+          });
+
+          session.state = ConversationState.ACTIVE;
+          delete session.context.escalationTime;
+
+          await sessionManager.updateSession(session);
+
+          const resetMsg = 'Session reset! 🔄 How can I help you today?';
+          await whatsappService.sendTextMessage(message.from, resetMsg);
+
+          return {
+            processed: true,
+            responseGenerated: true,
+          };
+        }
+
         // ✅ Task 4.5 - Skip AI processing if conversation is escalated to agent
         // FIX: Add timeout recovery - if agent hasn't responded in 1 minute, return to AI (for testing)
         if (session.state === ConversationState.WAITING_AGENT) {
           const escalationTime = session.context.escalationTime || new Date();
           const tenMinutesAgo = new Date(Date.now() - 1 * 60 * 1000); // Changed to 1 minute for testing
-          
+
           // If escalated more than 10 minutes ago, recover to ACTIVE state
           if (new Date(escalationTime) < tenMinutesAgo) {
             logger.info('Escalation timeout - returning to AI processing', {
@@ -142,20 +176,21 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
               escalationTime,
               minutesWaiting: Math.floor((Date.now() - new Date(escalationTime).getTime()) / 60000),
             });
-            
+
             // Reset state to ACTIVE
             session.state = ConversationState.ACTIVE;
             delete session.context.escalationTime;
-            
+
             // Send fallback message
-            const fallbackMsg = session.context.languagePreference?.primary === 'ar'
-              ? 'عذراً على التأخير. سيتواصل معك أحد ممثلينا قريباً. في هذه الأثناء، كيف يمكنني مساعدتك؟ 😊'
-              : session.context.languagePreference?.primary === 'en'
-              ? 'Sorry for the delay. One of our representatives will contact you soon. Meanwhile, how can I help you? 😊'
-              : 'عذراً على التأخير. سيتواصل معك أحد ممثلينا قريباً.\nSorry for the delay. One of our representatives will contact you soon.\n\nكيف يمكنني مساعدتك؟ / How can I help you? 😊';
-            
+            const fallbackMsg =
+              session.context.languagePreference?.primary === 'ar'
+                ? 'عذراً على التأخير. سيتواصل معك أحد ممثلينا قريباً. في هذه الأثناء، كيف يمكنني مساعدتك؟ 😊'
+                : session.context.languagePreference?.primary === 'en'
+                  ? 'Sorry for the delay. One of our representatives will contact you soon. Meanwhile, how can I help you? 😊'
+                  : 'عذراً على التأخير. سيتواصل معك أحد ممثلينا قريباً.\nSorry for the delay. One of our representatives will contact you soon.\n\nكيف يمكنني مساعدتك؟ / How can I help you? 😊';
+
             await whatsappService.sendTextMessage(message.from, fallbackMsg);
-            
+
             // Continue with normal AI processing below
           } else {
             logger.info('Conversation is escalated to agent - skipping AI processing', {
@@ -209,10 +244,11 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
 
             if (bookingResult.success) {
               // Send confirmation message
-              const confirmationMsg = await schedulingIntegrationService.generateBookingConfirmationMessage(
-                bookingResult.viewingId!,
-                session.context.languagePreference?.primary || 'mixed'
-              );
+              const confirmationMsg =
+                await schedulingIntegrationService.generateBookingConfirmationMessage(
+                  bookingResult.viewingId!,
+                  session.context.languagePreference?.primary || 'mixed'
+                );
 
               await whatsappService.sendTextMessage(message.from, confirmationMsg);
 
@@ -239,8 +275,11 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
               };
             } else {
               // Booking failed, send error message
-              await whatsappService.sendTextMessage(message.from, bookingResult.error || 'حدث خطأ في الحجز\nBooking failed');
-              
+              await whatsappService.sendTextMessage(
+                message.from,
+                bookingResult.error || 'حدث خطأ في الحجز\nBooking failed'
+              );
+
               // Clear context and let AI handle follow-up
               session.context.awaitingSchedulingResponse = false;
               delete session.context.schedulingContext;
@@ -248,7 +287,7 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
           } else {
             // Slot validation failed, send clarification message
             await whatsappService.sendTextMessage(message.from, validationResult.message);
-            
+
             // Keep scheduling context active for retry
             logger.info('Slot validation failed, awaiting retry', {
               sessionId: session.id,
@@ -276,10 +315,12 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
         });
 
         const languageDetection = languageDetectionService.detectLanguage(message.content);
-        
+
         // Update session with detected language preference
-        if (!session.context.languagePreference || 
-            languageDetection.confidence > (session.context.languagePreference.confidence || 0)) {
+        if (
+          !session.context.languagePreference ||
+          languageDetection.confidence > (session.context.languagePreference.confidence || 0)
+        ) {
           session.context.languagePreference = {
             primary: languageDetection.language,
             confidence: languageDetection.confidence,
@@ -311,10 +352,7 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
 
         // Classify intent and extract entities using LLM
         // As per plan lines 571-588: Use LLM for zero-shot classification
-        const intentAnalysis = await intentClassifier.analyze(
-          message.content,
-          conversationContext
-        );
+        const intentAnalysis = await intentClassifier.analyze(message.content, conversationContext);
 
         logger.info('Intent classified and entities extracted', {
           messageId: message.messageId,
@@ -410,17 +448,18 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
 
           try {
             const detectedLanguage = session.context.languagePreference?.primary || 'mixed';
-            
+
             // ✅ Task 4.3 Fix #6: Check if customer has selected a specific property
             const propertyId = session.context.extractedInfo?.propertyId || undefined;
 
             // If no specific property selected, ask which one
             if (!propertyId) {
-              const clarificationMsg = detectedLanguage === 'ar' 
-                ? 'بالتأكيد! لأي عقار تريد حجز معاينة؟'
-                : detectedLanguage === 'en'
-                ? 'Sure! Which property would you like to schedule a viewing for?'
-                : 'بالتأكيد! لأي عقار تريد حجز معاينة؟\nSure! Which property would you like to schedule a viewing for?';
+              const clarificationMsg =
+                detectedLanguage === 'ar'
+                  ? 'بالتأكيد! لأي عقار تريد حجز معاينة؟'
+                  : detectedLanguage === 'en'
+                    ? 'Sure! Which property would you like to schedule a viewing for?'
+                    : 'بالتأكيد! لأي عقار تريد حجز معاينة؟\nSure! Which property would you like to schedule a viewing for?';
 
               await whatsappService.sendTextMessage(message.from, clarificationMsg);
 
@@ -526,7 +565,7 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
         if (relevantProperties.length > 0) {
           logger.info('=== PROPERTIES FOUND ===', {
             count: relevantProperties.length,
-            properties: relevantProperties.map(p => ({
+            properties: relevantProperties.map((p) => ({
               id: p.id,
               name: p.projectName,
               type: p.propertyType,
@@ -617,18 +656,15 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
 
         // FIX: Pass detected language to post-processor for template adaptation
         const detectedLanguage = session.context.languagePreference?.primary || 'mixed';
-        
-        const enhancedResponse = await responsePostProcessor.postProcess(
-          llmResponse.content,
-          {
-            intent: intentAnalysis.intent,
-            properties: relevantProperties,
-            customerName: undefined, // TODO: Extract from conversation if available
-            agentName: session.agentId,
-            extractedInfo: session.context.extractedInfo,
-            detectedLanguage: detectedLanguage,  // FIX: Pass detected language
-          }
-        );
+
+        const enhancedResponse = await responsePostProcessor.postProcess(llmResponse.content, {
+          intent: intentAnalysis.intent,
+          properties: relevantProperties,
+          customerName: undefined, // TODO: Extract from conversation if available
+          agentName: session.agentId,
+          extractedInfo: session.context.extractedInfo,
+          detectedLanguage: detectedLanguage, // FIX: Pass detected language
+        });
 
         logger.info('Response post-processing complete', {
           messageId: message.messageId,
@@ -658,11 +694,11 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
             currentState: session.state,
             note: 'This should be rare - most escalations caught earlier',
           });
-          
+
           // Update session state to WAITING_AGENT
           session.state = ConversationState.WAITING_AGENT;
           session.context.escalationTime = new Date();
-          
+
           // Try to execute handoff
           try {
             const escalationDetection = {
@@ -768,7 +804,6 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
             qualityChanged,
             explanation: scoreExplanation,
           });
-
         } catch (scoringError) {
           // Don't fail the message processing if scoring fails
           logger.error('Failed to calculate/update lead score', {
@@ -794,7 +829,7 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
             messageId: message.messageId,
             propertiesCount: enhancedResponse.properties.length,
           });
-          
+
           // For now, properties are included in the text summary
           // In Phase 3/4, we'll send them as separate cards/template messages
         }
@@ -804,9 +839,9 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
         if (enhancedResponse.buttons && enhancedResponse.buttons.length > 0) {
           logger.info('Buttons generated (to be sent as interactive message)', {
             messageId: message.messageId,
-            buttons: enhancedResponse.buttons.map(b => b.title),
+            buttons: enhancedResponse.buttons.map((b) => b.title),
           });
-          
+
           // For now, we log the buttons
           // In Phase 3/4, we'll send them as WhatsApp interactive messages
         }
@@ -818,7 +853,7 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
             messageId: message.messageId,
             location: enhancedResponse.location.name,
           });
-          
+
           // For now, we log the location
           // In Phase 3/4, we'll send it as a WhatsApp location message
         }
@@ -874,8 +909,12 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
     }
 
     // Handle media messages (images, videos, documents, audio)
-    if (message.type === 'image' || message.type === 'video' || 
-        message.type === 'document' || message.type === 'audio') {
+    if (
+      message.type === 'image' ||
+      message.type === 'video' ||
+      message.type === 'document' ||
+      message.type === 'audio'
+    ) {
       logger.info('Processing media message', {
         messageId: message.messageId,
         from: message.from,
@@ -906,7 +945,10 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
       });
 
       // Handle scheduling-related buttons
-      if (message.buttonPayload.startsWith('schedule_') || message.buttonPayload.includes('viewing')) {
+      if (
+        message.buttonPayload.startsWith('schedule_') ||
+        message.buttonPayload.includes('viewing')
+      ) {
         logger.info('Scheduling button clicked', {
           sessionId: session.id,
           payload: message.buttonPayload,
@@ -915,7 +957,7 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
         // Parse button payload (format: "schedule_viewing_{propertyId}" or "schedule_slot_{timestamp}")
         if (message.buttonPayload.startsWith('schedule_viewing_')) {
           const propertyId = message.buttonPayload.replace('schedule_viewing_', '');
-          
+
           // Set scheduling context
           session.context.awaitingSchedulingResponse = true;
           session.context.schedulingContext = {
@@ -959,10 +1001,11 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
             );
 
             if (bookingResult.success) {
-              const confirmationMsg = await schedulingIntegrationService.generateBookingConfirmationMessage(
-                bookingResult.viewingId!,
-                session.context.languagePreference?.primary || 'mixed'
-              );
+              const confirmationMsg =
+                await schedulingIntegrationService.generateBookingConfirmationMessage(
+                  bookingResult.viewingId!,
+                  session.context.languagePreference?.primary || 'mixed'
+                );
 
               await whatsappService.sendTextMessage(message.from, confirmationMsg);
 
@@ -1013,4 +1056,3 @@ export async function processMessage(job: Job<MessageQueueJob>): Promise<Message
     throw error; // Let Bull handle retry
   }
 }
-

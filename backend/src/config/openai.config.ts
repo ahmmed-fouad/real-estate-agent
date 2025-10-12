@@ -1,7 +1,7 @@
 /**
  * OpenAI Configuration
  * Configuration for OpenAI API integration
- * As per plan line 75: "LLM Provider: OpenAI GPT-4"
+ * Supports GPT-4, GPT-5, and o1 models
  */
 
 import { config } from 'dotenv';
@@ -28,12 +28,10 @@ export const getOpenAIConfig = (): OpenAIConfig => {
   const apiKey = process.env.OPENAI_API_KEY;
 
   if (!apiKey) {
-    throw new Error(
-      'OPENAI_API_KEY is required. Please set it in your .env file.'
-    );
+    throw new Error('OPENAI_API_KEY is required. Please set it in your .env file.');
   }
 
-  const model = process.env.OPENAI_MODEL || 'gpt-4';
+  const model = process.env.OPENAI_MODEL || 'gpt-5';
   const embeddingModel = process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-large';
   const maxTokens = parseInt(process.env.MAX_TOKENS || '500', 10);
   const temperature = parseFloat(process.env.AI_TEMPERATURE || '0.7');
@@ -53,4 +51,3 @@ export const getOpenAIConfig = (): OpenAIConfig => {
  * Export singleton config
  */
 export const openaiConfig = getOpenAIConfig();
-

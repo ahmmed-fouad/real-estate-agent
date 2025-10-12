@@ -48,6 +48,16 @@ export class EscalationDetectorService {
     message: string,
     session: ConversationSession
   ): Promise<EscalationDetection> {
+    // FIX: Add ability to disable escalation detection for testing/debugging
+    if (process.env.DISABLE_ESCALATION === 'true') {
+      logger.info('Escalation detection disabled via environment variable');
+      return {
+        shouldEscalate: false,
+        confidence: 1.0,
+        reason: 'Escalation detection disabled',
+      };
+    }
+
     logger.info('Analyzing message for escalation triggers', {
       sessionId: session.id,
       customerId: session.customerId,
@@ -104,7 +114,7 @@ export class EscalationDetectorService {
    * Task 4.5, Subtask 1: Line 1072 - "Customer explicitly asks for agent"
    */
   private detectExplicitAgentRequest(message: string): EscalationDetection {
-    const messageLower = message.toLowerCase();
+    // const messageLower = message.toLowerCase();
 
     // English patterns
     const englishPatterns = [
@@ -153,7 +163,7 @@ export class EscalationDetectorService {
    * Task 4.5, Subtask 1: Line 1076 - "Complaint handling"
    */
   private detectComplaint(message: string): EscalationDetection {
-    const messageLower = message.toLowerCase();
+    // const messageLower = message.toLowerCase();
 
     // English complaint patterns
     const englishPatterns = [
@@ -203,7 +213,7 @@ export class EscalationDetectorService {
    * Task 4.5, Subtask 1: Line 1075 - "Negotiation or custom deal requests"
    */
   private detectNegotiationRequest(message: string): EscalationDetection {
-    const messageLower = message.toLowerCase();
+    // const messageLower = message.toLowerCase();
 
     // English negotiation patterns
     const englishPatterns = [
@@ -322,8 +332,12 @@ Respond in JSON format:
 }`;
 
       const openaiClient = getOpenAIClient();
+      const model = process.env.OPENAI_MODEL || 'gpt-5';
+      const isNewModel = model.startsWith('gpt-5') || model.startsWith('o1');
+      const tokenParam = isNewModel ? { max_completion_tokens: 200 } : { max_tokens: 200 };
+
       const response = await openaiClient.chat.completions.create({
-        model: process.env.OPENAI_MODEL || 'gpt-4',
+        model,
         messages: [
           {
             role: 'system',
@@ -333,13 +347,15 @@ Respond in JSON format:
           { role: 'user', content: prompt },
         ],
         temperature: 0.3,
-        max_tokens: 200,
+        ...tokenParam,
         response_format: { type: 'json_object' },
       });
 
       const result = JSON.parse(response.choices[0].message.content || '{}');
 
-      if (result.isFrustrated && result.confidence >= 0.7) {
+      // FIX: Increased threshold to 0.85 to prevent over-escalation
+      // Only escalate when customer is clearly frustrated/angry
+      if (result.isFrustrated && result.confidence >= 0.85) {
         logger.info('Frustration detected by LLM', {
           sessionId: session.id,
           confidence: result.confidence,
@@ -404,8 +420,12 @@ Respond in JSON format:
 }`;
 
       const openaiClient = getOpenAIClient();
+      const model = process.env.OPENAI_MODEL || 'gpt-5';
+      const isNewModel = model.startsWith('gpt-5') || model.startsWith('o1');
+      const tokenParam = isNewModel ? { max_completion_tokens: 200 } : { max_tokens: 200 };
+
       const response = await openaiClient.chat.completions.create({
-        model: process.env.OPENAI_MODEL || 'gpt-4',
+        model,
         messages: [
           {
             role: 'system',
@@ -415,13 +435,15 @@ Respond in JSON format:
           { role: 'user', content: prompt },
         ],
         temperature: 0.3,
-        max_tokens: 200,
+        ...tokenParam,
         response_format: { type: 'json_object' },
       });
 
       const result = JSON.parse(response.choices[0].message.content || '{}');
 
-      if (result.isComplex && result.confidence >= 0.7) {
+      // FIX: Increased threshold to 0.9 to prevent over-escalation
+      // Only escalate when LLM is very confident the query is too complex
+      if (result.isComplex && result.confidence >= 0.9) {
         logger.info('Complex query detected by LLM', {
           sessionId: session.id,
           confidence: result.confidence,

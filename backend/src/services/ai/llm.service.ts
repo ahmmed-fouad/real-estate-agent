@@ -2,7 +2,7 @@
  * LLM Service
  * Handles LLM API calls and response generation
  * As per plan lines 359-372: "Basic LLM Client"
- * 
+ *
  * Features implemented:
  * - Call OpenAI/Anthropic API (line 367)
  * - Handle streaming (optional) (line 368)
@@ -15,20 +15,15 @@ import { openaiConfig } from '../../config/openai.config';
 import { getOpenAIClient } from '../../config/openai-client';
 import { createServiceLogger } from '../../utils/logger';
 import { languageDetectionService } from '../language';
-import {
-  ILLMService,
-  LLMMessage,
-  LLMResponse,
-  GenerationOptions,
-  TokenUsage,
-} from './types';
+import { ILLMService, LLMMessage, LLMResponse, GenerationOptions, TokenUsage } from './types';
 
 const logger = createServiceLogger('LLMService');
 
 /**
  * LLM Service Implementation
- * Integrates with OpenAI GPT-4 as per plan (line 75)
+ * Integrates with OpenAI models (GPT-4, GPT-5, o1)
  * Uses shared OpenAI client to eliminate duplication
+ * Automatically handles API differences between model versions
  */
 export class LLMService implements ILLMService {
   private client: OpenAI;
@@ -66,9 +61,7 @@ export class LLMService implements ILLMService {
 
     try {
       // Build messages array
-      const messages: LLMMessage[] = [
-        { role: 'system', content: systemPrompt },
-      ];
+      const messages: LLMMessage[] = [{ role: 'system', content: systemPrompt }];
 
       // Add context if provided
       if (context && context.length > 0) {
@@ -134,15 +127,29 @@ export class LLMService implements ILLMService {
         streaming: options?.stream || false,
       });
 
+      // GPT-5 and o1 models use max_completion_tokens instead of max_tokens
+      // and don't support temperature or other sampling parameters
+      const isNewModel = this.model.startsWith('gpt-5') || this.model.startsWith('o1');
+      const tokenParam = isNewModel
+        ? { max_completion_tokens: maxTokens }
+        : { max_tokens: maxTokens };
+
+      // Build sampling parameters (only for older models)
+      const samplingParams = isNewModel
+        ? {}
+        : {
+            temperature,
+            top_p: options?.topP,
+            frequency_penalty: options?.frequencyPenalty,
+            presence_penalty: options?.presencePenalty,
+          };
+
       // Call OpenAI Chat Completion API (non-streaming only for now)
       const completion = await this.client.chat.completions.create({
         model: this.model,
         messages: messages as OpenAI.Chat.ChatCompletionMessageParam[],
-        max_tokens: maxTokens,
-        temperature,
-        top_p: options?.topP,
-        frequency_penalty: options?.frequencyPenalty,
-        presence_penalty: options?.presencePenalty,
+        ...tokenParam,
+        ...samplingParams,
         stop: options?.stop,
         stream: false, // Force non-streaming to avoid type issues
       });
@@ -202,7 +209,7 @@ export class LLMService implements ILLMService {
    * Estimate token count for text
    * Simple estimation: ~4 characters per token for English
    * ~2 characters per token for Arabic (due to Unicode)
-   * 
+   *
    * FIX: Now reuses languageDetectionService to avoid regex duplication
    * Note: For production, consider using tiktoken library for accurate counts
    */
@@ -235,10 +242,7 @@ export class LLMService implements ILLMService {
   /**
    * Update generation parameters (useful for testing/tuning)
    */
-  updateConfig(config: {
-    maxTokens?: number;
-    temperature?: number;
-  }): void {
+  updateConfig(config: { maxTokens?: number; temperature?: number }): void {
     if (config.maxTokens !== undefined) {
       this.maxTokens = config.maxTokens;
       logger.info('Updated maxTokens', { maxTokens: this.maxTokens });
@@ -252,4 +256,3 @@ export class LLMService implements ILLMService {
 
 // Export singleton instance
 export const llmService = new LLMService();
-

@@ -1,0 +1,7 @@
+{
+  "compilerOptions": {
+    "composite": true
+  },
+  "include": ["backend/src/**/*", "admin-portal/src/**/*"],
+  "exclude": ["node_modules", "**/node_modules"]
+}
